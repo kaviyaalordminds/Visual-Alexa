@@ -9,6 +9,7 @@ description = "VEYRA Local API — the only process with database access and the
 requires-python = ">=3.11"
 dependencies = [
     "veyra-contracts",
+    "veyra-computer-control",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.30,<1",
     "sqlalchemy>=2.0,<3",

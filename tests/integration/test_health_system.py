@@ -2,6 +2,8 @@
 with API' and 'Health endpoint works' acceptance criteria.
 """
 
+import pytest
+
 
 async def test_health_endpoint(client):
     resp = await client.get("/health")
@@ -11,6 +13,7 @@ async def test_health_endpoint(client):
     assert "timestamp" in body
 
 
+@pytest.mark.real_computer_control_default
 async def test_system_status_defaults_match_status_ui_spec(client):
     """product brief §40 — the exact default status screen values."""
     resp = await client.get("/system")

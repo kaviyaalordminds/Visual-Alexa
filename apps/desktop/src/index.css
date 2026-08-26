@@ -10,7 +10,7 @@ body {
 }
 
 .shell {
-  max-width: 480px;
+  max-width: 640px;
   margin: 0 auto;
   padding: 2.5rem 1.5rem;
 }
@@ -64,4 +64,86 @@ h1 {
 
 .status-error {
   color: #f87171;
+}
+
+.dev-console {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #262b36;
+}
+
+.dev-console h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.dev-console-hint {
+  color: #9aa3b2;
+  font-size: 0.85rem;
+  margin-top: 0;
+}
+
+.dev-console-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.dev-console-row label {
+  font-size: 0.8rem;
+  color: #9aa3b2;
+}
+
+.dev-console-row select,
+.dev-console-row input {
+  background: #171a21;
+  border: 1px solid #262b36;
+  color: #e6e8eb;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-family: inherit;
+}
+
+.dev-console button {
+  background: #7aa2f7;
+  color: #0f1115;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dev-console button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.dev-console-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.dev-console-summary dt {
+  font-size: 0.75rem;
+  color: #9aa3b2;
+}
+
+.dev-console-summary dd {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.dev-console-output {
+  background: #171a21;
+  border: 1px solid #262b36;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
 }

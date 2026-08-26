@@ -95,7 +95,10 @@ class TaskState(StrEnum):
 
 
 class ErrorCategory(StrEnum):
-    """docs/security error model, product brief §27"""
+    """docs/security error model, product brief §27. Phase 2 additions are
+    documented in docs/phase-2/ERROR-RECOVERY.md — note UI_ELEMENT_NOT_FOUND
+    from the Phase 2 brief maps onto the existing UI_NOT_FOUND rather than
+    duplicating it."""
 
     VALIDATION_ERROR = "VALIDATION_ERROR"
     PERMISSION_DENIED = "PERMISSION_DENIED"
@@ -110,6 +113,24 @@ class ErrorCategory(StrEnum):
     MODEL_FAILURE = "MODEL_FAILURE"
     VISION_FAILURE = "VISION_FAILURE"
     UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+    # --- Phase 2: computer-control engine ---
+    APPLICATION_LAUNCH_FAILED = "APPLICATION_LAUNCH_FAILED"
+    WINDOW_NOT_FOUND = "WINDOW_NOT_FOUND"
+    WINDOW_NOT_ACTIVE = "WINDOW_NOT_ACTIVE"
+    UI_ELEMENT_DISABLED = "UI_ELEMENT_DISABLED"
+    PATH_NOT_ALLOWED = "PATH_NOT_ALLOWED"
+    PATH_PROTECTED = "PATH_PROTECTED"
+    TARGET_CONTEXT_REQUIRED = "TARGET_CONTEXT_REQUIRED"
+    INPUT_BLOCKED = "INPUT_BLOCKED"
+    VERIFICATION_FAILED = "VERIFICATION_FAILED"
+    TOOL_DISABLED = "TOOL_DISABLED"
+    OPERATION_CANCELLED = "OPERATION_CANCELLED"
+    UNKNOWN_WINDOWS_ERROR = "UNKNOWN_WINDOWS_ERROR"
+    # Not in the Phase 2 brief's list; added so a Windows-only tool fails
+    # honestly on a non-Windows host instead of crashing or faking success —
+    # see docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md §2.
+    PLATFORM_NOT_SUPPORTED = "PLATFORM_NOT_SUPPORTED"
 
 
 class EventType(StrEnum):

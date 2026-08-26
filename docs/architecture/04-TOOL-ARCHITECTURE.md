@@ -59,7 +59,10 @@ Policy Engine  ── rejects if no valid PermissionGrant for
 ToolRegistry.get(tool_id)  ── rejects unknown tool IDs
         │
         ▼
-ToolExecutor.execute()  ── Phase 1: NotImplementedStub for every tool
+ToolExecutor.execute()  ── real for filesystem/keyboard/mouse/screen/
+        │                  application/window/ui tools since Phase 2;
+        │                  platform-unsupported executor on non-Windows
+        │                  hosts for the Windows-only ones
         │
         ▼
 ToolVerifier.verify()  ── confirms expected postcondition, not just
@@ -78,21 +81,36 @@ EventBus.publish(task.progress / tool.executed)
 (`CRITICAL` always requires confirmation regardless of any stored grant —
 see `docs/security/08-SENSITIVE-ACTION-POLICY.md`). It is not merely a label.
 
-## 5. Phase 1 tool categories (defined, not implemented)
+## 5. Tool categories (Phase 1 defined; `filesystem`/`windows`/`process`/
+`screen`/`keyboard`/`mouse` implemented in Phase 2)
 
 `filesystem`, `windows`, `process`, `screen`, `keyboard`, `mouse`,
 `browser`, `communication`, `media`, `documents`, `system`, `iot` — all
-represented as an enum in `packages/contracts`. Zero concrete tools are
-registered with real executors in Phase 1; the registry ships with example
-`SAFE`-tier stub definitions (e.g., `system.get_status`) whose executor
-returns static/DB-backed data, specifically so the registry → policy →
-executor → verify → audit path is exercised end-to-end by tests without
-performing any real OS action.
+represented as an enum in `packages/contracts`. Phase 1 shipped one
+`SAFE`-tier stub (`system.get_status`) to prove the registry → policy →
+executor → verify → audit path end-to-end without performing any real OS
+action. **Phase 2** (`docs/phase-2/COMPUTER-CONTROL-DESIGN.md`) registers
+40 real tools across `application`/`window`/`filesystem`/`keyboard`/
+`mouse`/`screen`/`ui` — the `filesystem`, `keyboard`, `mouse`, and `screen`
+categories are genuinely cross-platform and verified in every deployment
+environment; `windows`/`process`-adjacent capabilities (application/window
+control, UI Automation) are real, reviewed Windows-only implementations,
+gated behind platform-capability detection so they fail honestly
+(`PLATFORM_NOT_SUPPORTED`) rather than crash on non-Windows hosts — see
+`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md` §2 for why this environment
+cannot runtime-verify the Windows-only paths. `browser`, `communication`,
+`media`, `documents`, `iot` remain unimplemented, out of Phase 2 scope.
 
 ## 6. What must NOT change without architectural review
 
 - No tool executor may call `subprocess`, `os.system`, PowerShell, or any
-  shell invocation with unvalidated/model-originated input.
+  shell invocation with unvalidated/model-originated input. The sole
+  Phase 2 exception (`application.launch`'s process spawn and
+  `filesystem.open`'s non-Windows fallback) uses only registry-resolved,
+  list-argv, `shell=False` calls — reviewed, allowlisted, and statically
+  verified by `tests/security/test_subprocess_argv_safety.py`; this is
+  not a relaxation of the rule, see
+  `docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md` §5.
 - No tool may be registered without a `risk_level` and
   `required_permission`.
 - The Policy Engine check must remain unconditionally in the execution path

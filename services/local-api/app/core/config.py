@@ -32,6 +32,12 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["tauri://localhost", "http://localhost:1420"]
 
+    # Phase 2: docs/phase-2/FILESYSTEM-CONTROL.md §7.2. None = use
+    # app.services.filesystem_config's platform-appropriate default
+    # (Documents/Downloads/Desktop on Windows). Never defaults to
+    # allow-all — see computer_control.filesystem.path_policy.PathPolicy.
+    filesystem_allowed_roots: list[str] | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

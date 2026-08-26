@@ -14,6 +14,14 @@ RETRYABLE_CATEGORIES: frozenset[ErrorCategory] = frozenset(
         ErrorCategory.TIMEOUT,
         ErrorCategory.DEVICE_UNAVAILABLE,
         ErrorCategory.TOOL_FAILURE,
+        # Phase 2: transient while a window/element is still appearing —
+        # exactly why wait_for_element polling exists
+        # (docs/phase-2/WINDOWS-UI-AUTOMATION.md). Bounded by
+        # TaskBudget.max_recovery_attempts like every other retryable
+        # category, never an unbounded loop.
+        ErrorCategory.WINDOW_NOT_FOUND,
+        ErrorCategory.UI_NOT_FOUND,
+        ErrorCategory.UNKNOWN_WINDOWS_ERROR,
     }
 )
 

@@ -27,7 +27,10 @@ from app.api import permissions as permissions_router
 from app.api import settings as settings_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.db.session import SessionLocal
+from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
+from app.services.computer_control import register_computer_control_tools
 from app.services.tool_registry import tool_registry
 
 settings = get_settings()
@@ -37,6 +40,9 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     configure_logging(settings.log_level)
     register_default_tools(tool_registry)
+    async with SessionLocal() as session:
+        application_registry = await load_application_registry(session)
+    register_computer_control_tools(tool_registry, settings, application_registry)
     yield
 
 

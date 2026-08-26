@@ -10,11 +10,13 @@ architectural review — see `docs/roadmap/DEFINITION-OF-DONE.md`.
 **VEYRA** is a local-first Visual AI Computer Operating Layer, not a voice
 assistant clone, not a chatbot, not a thin wrapper around a computer-use
 model. Full product context: `docs/research/VEYRA_DIFFERENTIATION.md`.
-Current phase: **Phase 1 — landscape research + foundation architecture
-only**. See `docs/roadmap/PHASE-1-SCOPE.md` for what is and is not
-implemented. Do not build Phase 2+ capability (full voice, full vision, full
-computer control, WhatsApp, IoT drivers, avatar assets) without explicit
-instruction to begin the next phase.
+Current phase: **Phase 2 — local Windows computer-control engine**, built
+on the Phase 1 foundation (`docs/roadmap/PHASE-1-SCOPE.md`). See
+`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md` for what Phase 2 added and
+`docs/phase-2/PHASE-2-TEST-RESULTS.md` for what is and isn't verified in
+this environment. Do not build Phase 3+ capability (full voice, the final
+AI planner, the final avatar, IoT, WhatsApp, unrestricted shell access)
+without explicit instruction to begin the next phase.
 
 ## Product vision
 

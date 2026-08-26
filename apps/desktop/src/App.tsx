@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { ComponentStatus, SystemStatus } from "@veyra/contracts";
 
 import { getSystemStatus } from "./api";
+import DevConsole from "./DevConsole";
 
 // Phase 1 technical shell only — product brief §40: "This is NOT the final
 // UI. Do not spend excessive time on visual design."
@@ -78,6 +79,8 @@ export default function App() {
           );
         })}
       </dl>
+
+      <DevConsole />
     </main>
   );
 }

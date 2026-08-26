@@ -22,27 +22,55 @@ the `ToolResult.evidence_tier_used` field for every action, making the
 evidence hierarchy auditable, not just aspirational (see
 `docs/security/06-AUDIT-LOGGING.md`).
 
-## 2. Future controllers (interfaces defined now, Phase 1 = stubs only)
+## 2. Controllers — implemented in Phase 2 as `computer_control.*` backends
 
 ```
-ApplicationController   # launch, focus, close, enumerate running apps
-WindowController         # enumerate windows, move/resize/activate
-FileController            # search, read metadata, move/copy/rename
-                          # (never delete without CRITICAL-tier confirmation)
-ProcessController         # enumerate/inspect processes (read-only in
-                          # Phase 1+; no arbitrary process termination
-                          # without CRITICAL confirmation)
-ScreenController           # capture (only when explicitly enabled), OCR
-KeyboardController         # text entry via structured target, not raw
-                          # global key injection
-MouseController             # last-resort coordinate actions only, gated
-                          # behind the evidence hierarchy above
-SystemController            # read-only system status/info in Phase 1
+ApplicationBackend   # launch, focus, close, enumerate running apps —
+                     # computer_control.windows.applications (real,
+                     # Windows-only) + computer_control.registry
+                     # (the resolver: alias -> known app -> discovered
+                     # executable, never an assumed path)
+WindowBackend         # enumerate windows, focus/minimize/maximize/
+                     # restore/close, get bounds/title —
+                     # computer_control.windows.windows_ctl (real,
+                     # Windows-only, pywinauto UIA backend + pywin32
+                     # foreground-window detection)
+FilesystemEngine       # search, metadata, open, create/copy/move/rename
+                     # — computer_control.filesystem (cross-platform,
+                     # verified in every environment). No delete method
+                     # exists on the class at all (docs/phase-2 §7) —
+                     # not "disabled," absent.
+ProcessBackend           # read-only enumerate/inspect —
+                     # computer_control.processes (psutil,
+                     # cross-platform). No termination capability exists.
+ScreenBackend              # capture (gated behind
+                     # screen_observation.enabled AND
+                     # computer_control.enabled) —
+                     # computer_control.screen (mss, cross-platform,
+                     # verified against a real Xvfb display). No OCR yet.
+KeyboardBackend             # text entry via a mandatory, structurally
+                     # enforced InputTarget, never global key injection
+                     # — computer_control.windows.keyboard (real,
+                     # Windows-only)
+MouseBackend                  # UISelector-resolved actions only — no
+                     # coordinate-only entry point exists anywhere in
+                     # the Phase 2 tool surface —
+                     # computer_control.windows.mouse (real,
+                     # Windows-only)
+UIAutomationBackend             # find/click/type against pywinauto's UIA
+                     # backend, tier 2 of the hierarchy above —
+                     # computer_control.windows.ui_automation
 ```
 
-Each controller implements a narrow interface consumed by specific
-`ToolExecutor`s (see `04-TOOL-ARCHITECTURE.md`) — controllers themselves are
-never exposed directly to the planner/LLM.
+Each backend implements a `Protocol` interface
+(`computer_control.core.backends`) consumed by specific `ToolExecutor`s
+(see `04-TOOL-ARCHITECTURE.md` and `docs/phase-2/COMPUTER-CONTROL-DESIGN.md`)
+— backends themselves are never exposed directly to the planner/LLM, and
+every Windows-only backend fails with a structured `PLATFORM_NOT_SUPPORTED`
+error on a non-Windows host rather than crashing (see
+`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md` §2 for why this repository's
+own development/test environment cannot runtime-verify the Windows-only
+paths, and what was verified instead).
 
 ## 3. Why this ordering
 
@@ -62,10 +90,19 @@ feeding directly into the confidence-aware execution policy in
 should, by policy, require explicit visual confirmation from the user before
 execution (product brief §14, "adaptive observation strategy").
 
-## 5. Phase 1 scope
+## 5. Phase 1 + Phase 2 scope
 
-Delivered: the evidence-tier enum, controller interfaces, and their wiring
-into the `ToolResult`/verification contracts. Not delivered: any concrete
-controller implementation (all are `NotImplementedError` stubs) — real
-Win32/UIA/OCR/vision integration is explicitly out of Phase 1 scope per the
-brief §39.
+Phase 1 delivered the evidence-tier enum, controller interfaces, and their
+wiring into the `ToolResult`/verification contracts, with every
+implementation a stub. **Phase 2** delivers real implementations for
+tiers 1 (native API — filesystem, application/window control via Win32)
+and 2 (UI Automation — `ui.*`/`mouse.*`/`keyboard.*`), with
+`ToolResult.evidence_tier_used` now genuinely populated per call (not just
+modeled) — verified end-to-end against a live server. Tiers 3–7
+(accessibility-tree fallback beyond UIA, app-specific integration, browser
+DOM, OCR, vision-model grounding) and tier 8 (coordinate fallback) remain
+unimplemented — no tool in Phase 2 exposes a coordinate-only entry point
+at all, so there is nothing to "fall back to" yet, which is a deliberate
+scope boundary, not an oversight. See
+`docs/phase-2/WINDOWS-UI-AUTOMATION.md` and
+`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md`.
