@@ -84,3 +84,18 @@ contract, and unit tests validating legal/illegal transitions. Not
 delivered: a live runtime executing real tasks through real tools — the
 state machine is exercised by tests with synthetic transitions, not by a
 real planner/executor yet.
+
+## 6. Phase 4: a real runtime, and eight new transitions
+
+`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md` delivers the live runtime
+this section anticipated: `AgentOrchestrator` drives real tasks through
+real Phase 1-3 tools, exercising this exact state machine — no parallel
+one. Real end-to-end execution surfaced eight legal transitions this
+diagram didn't originally have (ambiguity discovered mid-plan,
+confirmation needed mid-execution, human-in-the-loop pause, direct
+recovery/failure edges from `EXECUTING`, resume-without-replan, and a new
+`TIMED_OUT` terminal state distinct from `FAILED`) — see
+`docs/phase-4/TASK-STATE-MACHINE.md` for the full list and the specific
+real bugs this caught. `TaskBudget` gained `max_replans`; `TaskStateMachine`
+(`app/services/agent/state_machine.py`) is the one place any code in this
+repository is allowed to mutate `Task.state`.

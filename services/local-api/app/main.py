@@ -28,6 +28,7 @@ from app.api import settings as settings_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import SessionLocal
+from app.services.agent.register import init_orchestrator
 from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
 from app.services.computer_control import register_computer_control_tools
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     bundle = build_backend_bundle()
     register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
     register_vision_tools(tool_registry, bundle)
+    init_orchestrator(tool_registry, settings)
     yield
 
 

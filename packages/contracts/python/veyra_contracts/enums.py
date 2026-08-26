@@ -81,7 +81,10 @@ class PermissionDecision(StrEnum):
 
 
 class TaskState(StrEnum):
-    """docs/architecture/14-TASK-LIFECYCLE.md"""
+    """docs/architecture/14-TASK-LIFECYCLE.md. Phase 4
+    (docs/phase-4/TASK-STATE-MACHINE.md) adds TIMED_OUT additively — a
+    budget exhaustion (max_steps/timeout_seconds) is now distinguishable
+    from an ordinary tool failure rather than folding into FAILED."""
 
     RECEIVED = "RECEIVED"
     UNDERSTANDING = "UNDERSTANDING"
@@ -95,6 +98,7 @@ class TaskState(StrEnum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    TIMED_OUT = "TIMED_OUT"
 
 
 class ErrorCategory(StrEnum):
@@ -135,9 +139,26 @@ class ErrorCategory(StrEnum):
     # see docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md §2.
     PLATFORM_NOT_SUPPORTED = "PLATFORM_NOT_SUPPORTED"
 
+    # --- Phase 4: AI brain / task execution engine ---
+    # docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md §1 — extends this same
+    # enum rather than a second "FailureCategory," since Phase 4's failure
+    # taxonomy (brief §47) and this one describe the same concept (why a
+    # call failed) at the same granularity. Most of the brief's §47 list
+    # already existed under a different name (see the plan doc's mapping
+    # table); these five did not.
+    AMBIGUOUS_TARGET = "AMBIGUOUS_TARGET"
+    STATE_MISMATCH = "STATE_MISMATCH"
+    RESOURCE_BUSY = "RESOURCE_BUSY"
+    INVALID_PLAN = "INVALID_PLAN"
+    UNKNOWN_TOOL = "UNKNOWN_TOOL"
+    CAPABILITY_UNAVAILABLE = "CAPABILITY_UNAVAILABLE"
+
 
 class EventType(StrEnum):
-    """docs/architecture/12-EVENTS.md §2"""
+    """docs/architecture/12-EVENTS.md §2. Phase 4
+    (docs/phase-4/AGENT-ARCHITECTURE.md §5) adds the granular `task.*`
+    events brief §84 asks for, additively — TASK_STARTED/PROGRESS/COMPLETED
+    already existed from Phase 1 and are kept for compatibility."""
 
     ASSISTANT_LISTENING = "assistant.listening"
     ASSISTANT_THINKING = "assistant.thinking"
@@ -152,6 +173,60 @@ class EventType(StrEnum):
     DEVICE_CONNECTED = "device.connected"
     DEVICE_DISCONNECTED = "device.disconnected"
     SYSTEM_HEALTH_CHANGED = "system.health_changed"
+
+    # --- Phase 4 ---
+    TASK_CREATED = "task.created"
+    TASK_PLANNED = "task.planned"
+    TASK_STEP_STARTED = "task.step.started"
+    TASK_STEP_COMPLETED = "task.step.completed"
+    TASK_STEP_FAILED = "task.step.failed"
+    TASK_CONFIRMATION_REQUIRED = "task.confirmation.required"
+    TASK_CONFIRMATION_RECEIVED = "task.confirmation.received"
+    TASK_RECOVERY_STARTED = "task.recovery.started"
+    TASK_RECOVERY_COMPLETED = "task.recovery.completed"
+    TASK_PAUSED = "task.paused"
+    TASK_RESUMED = "task.resumed"
+    TASK_CANCELLED = "task.cancelled"
+    TASK_FAILED = "task.failed"
+    TASK_TIMED_OUT = "task.timed_out"
+
+
+class RecoveryStrategy(StrEnum):
+    """docs/phase-4/RECOVERY.md"""
+
+    RETRY = "RETRY"
+    REOBSERVE = "REOBSERVE"
+    REGROUND = "REGROUND"
+    ALTERNATIVE_TOOL = "ALTERNATIVE_TOOL"
+    REPLAN = "REPLAN"
+    ASK_USER = "ASK_USER"
+    ABORT = "ABORT"
+
+
+class AgentState(StrEnum):
+    """docs/phase-4/AGENT-ARCHITECTURE.md §7 — semantic states for a
+    future avatar/UI to consume; computed from TaskState, never stored as
+    a second, independently-mutable field (docs/phase-4/TASK-MEMORY.md)."""
+
+    IDLE = "IDLE"
+    LISTENING = "LISTENING"
+    UNDERSTANDING = "UNDERSTANDING"
+    THINKING = "THINKING"
+    PLANNING = "PLANNING"
+    EXECUTING = "EXECUTING"
+    WAITING = "WAITING"
+    CONFIRMING = "CONFIRMING"
+    RECOVERING = "RECOVERING"
+    SUCCESS = "SUCCESS"
+    ERROR = "ERROR"
+
+
+class TaskPriority(StrEnum):
+    """docs/phase-4/TASK-ENGINE.md"""
+
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
 
 
 class MemoryCategory(StrEnum):

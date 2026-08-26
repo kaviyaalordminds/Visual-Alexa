@@ -13,25 +13,69 @@ from veyra_contracts.enums import TaskState
 _LEGAL_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.RECEIVED: frozenset({TaskState.UNDERSTANDING}),
     TaskState.UNDERSTANDING: frozenset({TaskState.PLANNING, TaskState.WAITING_USER}),
-    TaskState.PLANNING: frozenset({TaskState.WAITING_PERMISSION}),
-    TaskState.WAITING_PERMISSION: frozenset({TaskState.EXECUTING, TaskState.FAILED}),
-    TaskState.EXECUTING: frozenset({TaskState.OBSERVING}),
-    TaskState.OBSERVING: frozenset({TaskState.VERIFYING}),
-    TaskState.VERIFYING: frozenset({TaskState.COMPLETED, TaskState.RECOVERING}),
-    TaskState.RECOVERING: frozenset(
-        {TaskState.PLANNING, TaskState.WAITING_USER, TaskState.FAILED}
+    # Phase 4 (docs/phase-4/TASK-STATE-MACHINE.md): PLANNING -> WAITING_USER
+    # is new — ambiguity discovered while *building* a plan (e.g. multiple
+    # candidate files) surfaces here, not only during UNDERSTANDING.
+    TaskState.PLANNING: frozenset({TaskState.WAITING_PERMISSION, TaskState.WAITING_USER}),
+    TaskState.WAITING_PERMISSION: frozenset(
+        {TaskState.EXECUTING, TaskState.FAILED, TaskState.TIMED_OUT}
     ),
+    # Phase 4: EXECUTING -> WAITING_PERMISSION is new — a later step in a
+    # multi-step plan can require fresh confirmation mid-execution, not
+    # only once before the first step. EXECUTING -> WAITING_USER is new —
+    # human-in-the-loop pause (CAPTCHA/2FA/unexpected prompt, brief
+    # §57/§58), distinct from a permission gate. EXECUTING -> RECOVERING
+    # is new — matches the brief's own §8 failure diagram ('EXECUTING ->
+    # RECOVERING -> RETRY or REPLAN') directly, for a step that fails
+    # before any observation was even attempted. EXECUTING -> FAILED is
+    # new — a planned call to an unregistered ('hallucinated') tool is
+    # rejected immediately (brief §77), never attempted, so there is
+    # nothing to diagnose/retry in RECOVERING first.
+    TaskState.EXECUTING: frozenset(
+        {
+            TaskState.OBSERVING,
+            TaskState.WAITING_PERMISSION,
+            TaskState.WAITING_USER,
+            TaskState.RECOVERING,
+            TaskState.FAILED,
+            TaskState.TIMED_OUT,
+        }
+    ),
+    TaskState.OBSERVING: frozenset({TaskState.VERIFYING, TaskState.TIMED_OUT}),
+    TaskState.VERIFYING: frozenset(
+        {TaskState.COMPLETED, TaskState.RECOVERING, TaskState.TIMED_OUT}
+    ),
+    TaskState.RECOVERING: frozenset(
+        {
+            TaskState.PLANNING,
+            TaskState.EXECUTING,
+            TaskState.WAITING_USER,
+            TaskState.FAILED,
+            TaskState.TIMED_OUT,
+        }
+    ),
+    # Phase 4: WAITING_USER -> EXECUTING is new — resuming a
+    # human-in-the-loop pause (brief §58: '...USER COMPLETES
+    # AUTHENTICATION -> VEYRA RESUMES') continues execution directly,
+    # never forces a full replan.
     TaskState.WAITING_USER: frozenset(
-        {TaskState.UNDERSTANDING, TaskState.PLANNING, TaskState.FAILED}
+        {
+            TaskState.UNDERSTANDING,
+            TaskState.PLANNING,
+            TaskState.EXECUTING,
+            TaskState.FAILED,
+            TaskState.TIMED_OUT,
+        }
     ),
     # Terminal states: no further transitions.
     TaskState.COMPLETED: frozenset(),
     TaskState.FAILED: frozenset(),
     TaskState.CANCELLED: frozenset(),
+    TaskState.TIMED_OUT: frozenset(),
 }
 
 _TERMINAL_STATES: frozenset[TaskState] = frozenset(
-    {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED}
+    {TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED, TaskState.TIMED_OUT}
 )
 
 
@@ -53,8 +97,12 @@ def illegal_task_transition(from_state: TaskState, to_state: TaskState) -> bool:
 
 class TaskBudget(BaseModel):
     """Mandatory guardrails for every autonomous execution loop.
-    CLAUDE.md: 'No unbounded loops, ever.'"""
+    CLAUDE.md: 'No unbounded loops, ever.' Phase 4
+    (docs/phase-4/TASK-ENGINE.md, brief §28/§73) adds `max_replans`
+    additively, with a default so existing callers (Phase 1's `/tasks`
+    API, existing tests) that never set it keep working unchanged."""
 
     max_steps: int = Field(gt=0, le=100)
     timeout_seconds: int = Field(gt=0, le=3600)
     max_recovery_attempts: int = Field(ge=0, le=10)
+    max_replans: int = Field(default=3, ge=0, le=10)

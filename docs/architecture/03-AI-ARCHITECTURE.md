@@ -83,7 +83,24 @@ specification; no live planner exists yet to execute it against).
 
 ## 7. Phase 1 scope boundary
 
-Delivered: `AIProvider` interface, mode configuration, `PlannedAction`/
-`ToolCallRequest` contracts, confidence enum, ambiguity-check contract.
-Not delivered: any actual model integration, any real planning loop, any
-live tool execution driven by a model.
+Delivered: mode configuration, `ToolCallRequest` contract, confidence
+enum, ambiguity-check contract (`resolve_ambiguity`). Not delivered:
+`AIProvider`/`PlannedAction` as described above were never actually
+implemented in code — Phase 4 re-verified this by direct inspection
+(`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md` §1) and built the real
+equivalent under different, now-implemented names — see §8.
+
+## 8. Phase 4: the real planning/execution loop
+
+`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md` and
+`docs/phase-4/AGENT-ARCHITECTURE.md` deliver the loop this section
+sketched, for real: `IntentInterpreter` (deterministic, not a model —
+`docs/phase-4/INTENT.md`) replaces the unbuilt `AIProvider.understand`;
+`TaskPlanner`+`ToolSelector` (`docs/phase-4/PLANNER.md`,
+`TOOL-SELECTION.md`) replace `PlannedAction`; `LLMProvider`
+(`docs/phase-4/MODEL-ABSTRACTION.md`) is the actual provider-independence
+interface this section described, with only `NotConfiguredLLMProvider`
+shipped. The confidence-aware execution policy (§5 above) and the
+ambiguity-resolution contract (§6 above) are both now exercised by a real
+caller (`TaskPlanner`) for the first time, not merely modeled — see
+`docs/phase-4/PHASE-4-TEST-RESULTS.md`.

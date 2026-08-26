@@ -19,10 +19,11 @@ from computer_control.filesystem import FilesystemEngine
 from computer_control.filesystem.engine import FilesystemError
 from computer_control.filesystem.models import SearchCriteria
 from computer_control.filesystem.path_policy import PathNotAllowedError, PathProtectedError
-from computer_control.launcher import default_launcher
+from computer_control.launcher import NoAssociatedApplicationLauncherError, default_launcher
 from pydantic import BaseModel
 from veyra_contracts import (
     ConfirmationPolicy,
+    ErrorCategory,
     EvidenceTier,
     RiskLevel,
     ToolCallRequest,
@@ -77,6 +78,13 @@ def _wrap(fn):
             return await fn(call)
         except (PathNotAllowedError, PathProtectedError, FilesystemError) as exc:
             raise ToolLogicError(exc.code, str(exc)) from exc
+        except NoAssociatedApplicationLauncherError as exc:
+            # docs/phase-2/FILESYSTEM-CONTROL.md §7.3 — this host has no
+            # 'xdg-open'/'open' to hand the file to; found via Phase 4's
+            # real end-to-end task execution (docs/phase-4/PHASE-4-TEST-RESULTS.md),
+            # previously an unhandled exception that crashed the caller
+            # instead of a structured failure.
+            raise ToolLogicError(ErrorCategory.APPLICATION_LAUNCH_FAILED, str(exc)) from exc
 
     return _run
 

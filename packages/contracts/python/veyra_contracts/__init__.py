@@ -8,6 +8,13 @@ task state transition table), matching CLAUDE.md's rule that the Policy
 Engine and executors, not these contracts, own enforcement.
 """
 
+from veyra_contracts.agent import (
+    ExecutionPlan,
+    IntentStatus,
+    PlanStep,
+    RecoveryDecision,
+    StructuredIntent,
+)
 from veyra_contracts.ambiguity import (
     AmbiguityCandidate,
     AmbiguityResolution,
@@ -22,6 +29,7 @@ from veyra_contracts.devices import (
 )
 from veyra_contracts.enums import (
     TRUSTED_CONTENT_SOURCES,
+    AgentState,
     Confidence,
     ConfirmationPolicy,
     ConnectionProtocol,
@@ -33,7 +41,9 @@ from veyra_contracts.enums import (
     EvidenceTier,
     MemoryCategory,
     PermissionDecision,
+    RecoveryStrategy,
     RiskLevel,
+    TaskPriority,
     TaskState,
     ToolCategory,
     ToolResultStatus,
@@ -51,6 +61,7 @@ from veyra_contracts.tools import ToolCallRequest, ToolDefinition, ToolResult
 
 __all__ = [
     "TRUSTED_CONTENT_SOURCES",
+    "AgentState",
     "AmbiguityCandidate",
     "AmbiguityResolution",
     "Command",
@@ -69,13 +80,20 @@ __all__ = [
     "Event",
     "EventType",
     "EvidenceTier",
+    "ExecutionPlan",
+    "IntentStatus",
     "MemoryCategory",
     "MemoryRecord",
     "PermissionDecision",
     "PermissionGrant",
     "PermissionRequest",
+    "PlanStep",
+    "RecoveryDecision",
+    "RecoveryStrategy",
     "RiskLevel",
+    "StructuredIntent",
     "TaskBudget",
+    "TaskPriority",
     "TaskState",
     "ToolCallRequest",
     "ToolCategory",

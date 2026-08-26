@@ -1,27 +1,67 @@
-"""POST/GET /tasks. docs/architecture/14-TASK-LIFECYCLE.md.
+"""POST/GET /tasks + Phase 4 execution endpoints.
+docs/architecture/14-TASK-LIFECYCLE.md, docs/phase-4/TASK-ENGINE.md.
 
-Phase 1 creates a task row in RECEIVED state with a mandatory TaskBudget —
-CLAUDE.md: 'No unbounded loops, ever.' No live Task Runtime advances a task
-past RECEIVED in Phase 1 (no planner/executor exists yet); this endpoint
-proves the data model and budget validation work end-to-end.
+Phase 1 created a task row in RECEIVED state with a mandatory
+TaskBudget — CLAUDE.md: 'No unbounded loops, ever.' Phase 4 adds the
+actual execution trigger (`/run`) plus the cooperative controls a
+running task needs (`/cancel`, `/confirm`) and read-only progress
+endpoints (`/steps`) — see docs/phase-4/TASK-API.md.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
+import logging
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import TaskBudget, TaskState
+from veyra_contracts import PermissionDecision, TaskBudget, TaskState
 
 from app.api.deps import get_or_create_local_user
-from app.db.session import get_session
+from app.db.session import SessionLocal, get_session
 from app.models.task import Task as TaskRow
+from app.models.task import TaskStep as TaskStepRow
+from app.models.tool import PermissionGrant as PermissionGrantRow
+from app.services.agent.orchestrator import request_cancellation
+from app.services.agent.register import get_orchestrator
+from app.services.agent.state_machine import TaskStateMachine
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+# Holds strong references to in-flight background run/resume tasks so
+# they aren't garbage-collected mid-execution (asyncio only holds a weak
+# reference internally) — each entry removes itself on completion.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+_ACTIVE_STATES = frozenset(
+    {
+        TaskState.RECEIVED,
+        TaskState.UNDERSTANDING,
+        TaskState.PLANNING,
+        TaskState.WAITING_PERMISSION,
+        TaskState.EXECUTING,
+        TaskState.OBSERVING,
+        TaskState.VERIFYING,
+        TaskState.RECOVERING,
+        TaskState.WAITING_USER,
+    }
+)
+
+# docs/phase-4/CONFIRMATION.md §22 — a confirm-created grant is
+# single-use and time-limited, never a standing ALWAYS_ALLOW.
+_CONFIRMATION_GRANT_TTL_SECONDS = 300
 
 
 class TaskOut(BaseModel):
@@ -33,6 +73,26 @@ class TaskOut(BaseModel):
     max_recovery_attempts: int
     correlation_id: str
     created_at: datetime
+    current_step: int
+    total_steps: int
+    requires_confirmation: bool
+    failure_reason: str | None
+    result: dict | None
+
+    model_config = {"from_attributes": True}
+
+
+class TaskStepOut(BaseModel):
+    id: str
+    step_number: int
+    state: TaskState
+    tool_id: str | None
+    description: str | None
+    arguments: dict
+    risk_level: str | None
+    retry_count: int
+    error: dict | None
+    actual_result: dict | None
 
     model_config = {"from_attributes": True}
 
@@ -41,6 +101,14 @@ class TaskCreate(BaseModel):
     description: str
     conversation_id: str | None = None
     budget: TaskBudget
+
+
+async def _get_task_or_404(task_id: str, session: AsyncSession) -> TaskRow:
+    result = await session.execute(select(TaskRow).where(TaskRow.id == task_id))
+    row = result.scalars().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'.")
+    return row
 
 
 @router.get("", response_model=list[TaskOut])
@@ -60,6 +128,7 @@ async def create_task(body: TaskCreate, session: AsyncSession = Depends(get_sess
         max_steps=body.budget.max_steps,
         timeout_seconds=body.budget.timeout_seconds,
         max_recovery_attempts=body.budget.max_recovery_attempts,
+        max_replans=body.budget.max_replans,
         correlation_id=str(uuid4()),
     )
     session.add(row)
@@ -70,8 +139,107 @@ async def create_task(body: TaskCreate, session: AsyncSession = Depends(get_sess
 
 @router.get("/{task_id}", response_model=TaskOut)
 async def get_task(task_id: str, session: AsyncSession = Depends(get_session)) -> TaskOut:
-    result = await session.execute(select(TaskRow).where(TaskRow.id == task_id))
-    row = result.scalars().first()
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'.")
+    return TaskOut.model_validate(await _get_task_or_404(task_id, session))
+
+
+@router.get("/{task_id}/steps", response_model=list[TaskStepOut])
+async def get_task_steps(
+    task_id: str, session: AsyncSession = Depends(get_session)
+) -> list[TaskStepOut]:
+    await _get_task_or_404(task_id, session)
+    result = await session.execute(
+        select(TaskStepRow).where(TaskStepRow.task_id == task_id).order_by(TaskStepRow.step_number)
+    )
+    return [TaskStepOut.model_validate(row) for row in result.scalars()]
+
+
+async def _run_in_background(task_id: str) -> None:
+    async with SessionLocal() as session:
+        result = await session.execute(select(TaskRow).where(TaskRow.id == task_id))
+        row = result.scalars().first()
+        if row is None:
+            return
+        try:
+            await get_orchestrator().run(session, row)
+        except Exception:
+            logger.exception("agent.task_run_failed", extra={"task_id": task_id})
+
+
+@router.post("/{task_id}/run", response_model=TaskOut, status_code=202)
+async def run_task(task_id: str, session: AsyncSession = Depends(get_session)) -> TaskOut:
+    row = await _get_task_or_404(task_id, session)
+    if row.state != TaskState.RECEIVED:
+        raise HTTPException(
+            status_code=409, detail=f"Task is already '{row.state.value}', not RECEIVED."
+        )
+    _spawn_background(_run_in_background(task_id))
     return TaskOut.model_validate(row)
+
+
+@router.post("/{task_id}/cancel", response_model=TaskOut)
+async def cancel_task(task_id: str, session: AsyncSession = Depends(get_session)) -> TaskOut:
+    """docs/phase-4/AGENT-ARCHITECTURE.md §24 — cooperative: sets a signal
+    the running orchestrator checks between steps. A task already
+    terminal is a no-op, not an error (idempotent 'stop' semantics)."""
+    row = await _get_task_or_404(task_id, session)
+    if row.state in _ACTIVE_STATES:
+        request_cancellation(task_id)
+    return TaskOut.model_validate(row)
+
+
+class ConfirmRequest(BaseModel):
+    decision: PermissionDecision = PermissionDecision.ALLOW_ONCE
+
+
+@router.post("/{task_id}/confirm", response_model=TaskOut)
+async def confirm_task(
+    task_id: str, body: ConfirmRequest, session: AsyncSession = Depends(get_session)
+) -> TaskOut:
+    """docs/phase-4/CONFIRMATION.md — creates the exact, time-limited
+    PermissionGrant the paused step needs, then resumes execution of the
+    same plan (in the background, like /run) rather than replanning."""
+    row = await _get_task_or_404(task_id, session)
+    if row.state != TaskState.WAITING_PERMISSION or not (row.result or {}).get("pending_plan"):
+        raise HTTPException(status_code=409, detail="Task has no pending confirmation.")
+    if body.decision in (PermissionDecision.DENY, PermissionDecision.CANCEL):
+        # docs/phase-4 §21 — 'Do not interpret ambiguous responses as
+        # confirmation.' A paused task has no running orchestrator loop
+        # left to observe a cooperative-cancellation signal, so denial
+        # transitions the task directly rather than relying on one.
+        sm = TaskStateMachine(row)
+        sm.transition(TaskState.CANCELLED)
+        row.completed_at = datetime.now(UTC)
+        row.result = {"outcome": "denied_by_user"}
+        await session.commit()
+        await session.refresh(row)
+        return TaskOut.model_validate(row)
+
+    user = await get_or_create_local_user(session)
+    pending_risk = (row.result or {}).get("pending_risk_level")
+    grant = PermissionGrantRow(
+        user_id=user.id,
+        tool_id=(row.result or {}).get("pending_tool_id"),
+        target=(row.result or {}).get("pending_target"),
+        risk_level=pending_risk,
+        scope=body.decision,
+        granted_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + timedelta(seconds=_CONFIRMATION_GRANT_TTL_SECONDS),
+    )
+    session.add(grant)
+    await session.commit()
+
+    _spawn_background(_resume_in_background(task_id))
+    await session.refresh(row)
+    return TaskOut.model_validate(row)
+
+
+async def _resume_in_background(task_id: str) -> None:
+    async with SessionLocal() as session:
+        result = await session.execute(select(TaskRow).where(TaskRow.id == task_id))
+        row = result.scalars().first()
+        if row is None:
+            return
+        try:
+            await get_orchestrator().resume_after_confirmation(session, row)
+        except Exception:
+            logger.exception("agent.task_resume_failed", extra={"task_id": task_id})
