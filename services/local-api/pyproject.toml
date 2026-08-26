@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veyra-local-api"
+version = "0.1.0"
+description = "VEYRA Local API — the only process with database access and the only process that can invoke a tool. Phase 1 foundation."
+requires-python = ">=3.11"
+dependencies = [
+    "veyra-contracts",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    "pydantic-settings>=2.3,<3",
+    "aiosqlite>=0.20,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<1",
+    "httpx>=0.27,<1",
+    "ruff>=0.6,<1",
+    "mypy>=1.11,<2",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Deliberately selected, standard rule set (this environment's ruff default
+# otherwise enables its full rule surface, which is noisier than intended).
+select = ["E", "F", "I", "B", "C4", "UP", "RUF"]
+# B008: FastAPI's Depends(...)-in-default-argument is the framework's own
+# idiomatic dependency-injection pattern, not the "mutable default" bug
+# this rule normally guards against — see FastAPI's own documentation.
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true

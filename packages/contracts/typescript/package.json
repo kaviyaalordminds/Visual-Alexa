@@ -1,0 +1,9 @@
+{
+  "name": "@veyra/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared typed contracts for VEYRA's TypeScript surfaces (desktop shell, future browser extension). Mirrors packages/contracts/python/veyra_contracts — see docs/architecture for the design rationale behind each type.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

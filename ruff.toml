@@ -1,0 +1,17 @@
+# Root-level ruff config, applied to files outside services/local-api and
+# packages/contracts/python (each of which has its own pyproject.toml with
+# an identical rule selection) — primarily the top-level tests/ tree.
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "B", "C4", "UP", "RUF"]
+# B008: FastAPI's Depends(...)-in-default-argument pattern, same rationale
+# as services/local-api/pyproject.toml.
+ignore = ["B008"]
+
+[lint.per-file-ignores]
+# conftest.py must set VEYRA_DATABASE_URL before importing anything that
+# reads settings at import time (app.main etc.) — the late imports are
+# deliberate, not accidental.
+"tests/conftest.py" = ["E402"]
