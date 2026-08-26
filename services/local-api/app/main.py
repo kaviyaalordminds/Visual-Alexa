@@ -22,6 +22,7 @@ from app.api import (
     system,
     tasks,
     tools,
+    voice,
 )
 from app.api import permissions as permissions_router
 from app.api import settings as settings_router
@@ -35,6 +36,7 @@ from app.services.computer_control import register_computer_control_tools
 from app.services.computer_control.backends import build_backend_bundle
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
+from app.services.voice.register import init_voice_manager
 
 settings = get_settings()
 
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI):
     register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
     register_vision_tools(tool_registry, bundle)
     init_orchestrator(tool_registry, settings)
+    init_voice_manager()
     yield
 
 
@@ -80,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks.router)
     app.include_router(integrations.router)
     app.include_router(events.router)
+    app.include_router(voice.router)
 
     return app
 

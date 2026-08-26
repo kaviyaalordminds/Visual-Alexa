@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,10 +25,12 @@ from app.api.deps import get_or_create_local_user
 from app.db.session import SessionLocal, get_session
 from app.models.task import Task as TaskRow
 from app.models.task import TaskStep as TaskStepRow
-from app.models.tool import PermissionGrant as PermissionGrantRow
+from app.services.agent.confirmation_actions import (
+    NoPendingConfirmationError,
+    apply_confirmation_decision,
+)
 from app.services.agent.orchestrator import request_cancellation
 from app.services.agent.register import get_orchestrator
-from app.services.agent.state_machine import TaskStateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +60,6 @@ _ACTIVE_STATES = frozenset(
         TaskState.WAITING_USER,
     }
 )
-
-# docs/phase-4/CONFIRMATION.md §22 — a confirm-created grant is
-# single-use and time-limited, never a standing ALWAYS_ALLOW.
-_CONFIRMATION_GRANT_TTL_SECONDS = 300
 
 
 class TaskOut(BaseModel):
@@ -199,37 +197,13 @@ async def confirm_task(
     PermissionGrant the paused step needs, then resumes execution of the
     same plan (in the background, like /run) rather than replanning."""
     row = await _get_task_or_404(task_id, session)
-    if row.state != TaskState.WAITING_PERMISSION or not (row.result or {}).get("pending_plan"):
-        raise HTTPException(status_code=409, detail="Task has no pending confirmation.")
-    if body.decision in (PermissionDecision.DENY, PermissionDecision.CANCEL):
-        # docs/phase-4 §21 — 'Do not interpret ambiguous responses as
-        # confirmation.' A paused task has no running orchestrator loop
-        # left to observe a cooperative-cancellation signal, so denial
-        # transitions the task directly rather than relying on one.
-        sm = TaskStateMachine(row)
-        sm.transition(TaskState.CANCELLED)
-        row.completed_at = datetime.now(UTC)
-        row.result = {"outcome": "denied_by_user"}
-        await session.commit()
-        await session.refresh(row)
-        return TaskOut.model_validate(row)
+    try:
+        resumed = await apply_confirmation_decision(session, row, body.decision)
+    except NoPendingConfirmationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    user = await get_or_create_local_user(session)
-    pending_risk = (row.result or {}).get("pending_risk_level")
-    grant = PermissionGrantRow(
-        user_id=user.id,
-        tool_id=(row.result or {}).get("pending_tool_id"),
-        target=(row.result or {}).get("pending_target"),
-        risk_level=pending_risk,
-        scope=body.decision,
-        granted_at=datetime.now(UTC),
-        expires_at=datetime.now(UTC) + timedelta(seconds=_CONFIRMATION_GRANT_TTL_SECONDS),
-    )
-    session.add(grant)
-    await session.commit()
-
-    _spawn_background(_resume_in_background(task_id))
-    await session.refresh(row)
+    if resumed:
+        _spawn_background(_resume_in_background(task_id))
     return TaskOut.model_validate(row)
 
 

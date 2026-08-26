@@ -58,3 +58,30 @@ explicit enablement, and its state must be visible in the status UI.
 Delivered: interfaces, mode configuration, and the "NOT CONFIGURED" default
 system state. Not delivered: any real audio capture, STT, TTS, or wake-word
 detection — explicitly out of Phase 1 scope per the brief §39.
+
+## 7. Phase 5: the real voice pipeline, hardware still unverified
+
+`docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md` and
+`docs/phase-5/VOICE-ARCHITECTURE.md` deliver every interface this section
+sketched, for real: `SpeechRecognitionProvider`/`SpeechSynthesisProvider`
+(`docs/phase-5/STT.md`, `TTS.md`) are the actual `STTEngine`/`TTSService`
+interfaces this section described; `LanguageDetector`
+(`docs/phase-5/LANGUAGE-DETECTION.md`) is real, pure-heuristic code,
+tested against the brief's own EN/Tanglish examples — exactly the
+"empirical, swappable decision" §2 called for; `VoiceConversationManager`
+(`docs/phase-5/CONVERSATION.md`) is the real `ConversationManager`,
+binding to Phase 4's `AgentOrchestrator` rather than reimplementing intent
+classification. `VoiceStateManager` is `VoiceStateMachine`
+(`docs/phase-5/VOICE-STATE-MACHINE.md`); its `voice.ui_state.changed`
+event (`docs/phase-5/VOICE-EVENTS.md` §3) is reserved for the future
+avatar's LISTENING/THINKING/SPEAKING drive this section anticipated, not
+yet consumed by anything.
+
+Only `WakeWordEngine`/`STTEngine`/`TTSService`'s *real* backends remain
+unbuilt — every `Protocol` ships exactly one honest `NotConfigured*`
+implementation plus deterministic `Mock*` providers for testing
+(`docs/phase-5/AUDIO-PIPELINE.md` §3), the same precedent Phase 3/4 set
+for `VisionProvider`/`LLMProvider`. This container has no audio hardware
+or audio library at all — a harder gap than Phase 2's Windows-only limit
+— so no real backend was attempted here; see
+`docs/phase-5/PHASE-5-TEST-RESULTS.md`.

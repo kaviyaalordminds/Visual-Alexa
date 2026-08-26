@@ -130,7 +130,16 @@ class AgentOrchestrator:
 
         if outcome.status == "AMBIGUOUS":
             sm.transition(TaskState.WAITING_USER)
-            task.result = {"clarifying_question": outcome.clarifying_question}
+            task.result = {
+                "clarifying_question": outcome.clarifying_question,
+                # Phase 5 addition (docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md
+                # §7): the planner already builds real AmbiguityCandidates
+                # (veyra_contracts.resolve_ambiguity) — persisted here so a
+                # caller (the voice layer's follow-up/pronoun resolution,
+                # or any future UI) can offer them back, never re-derive or
+                # fabricate its own guess at what they were.
+                "candidates": [c.model_dump(mode="json") for c in outcome.candidates],
+            }
             await self._save(session, task)
             await event_bus.publish_type(EventType.TASK_CONFIRMATION_REQUIRED, task.correlation_id)
             return
@@ -236,7 +245,13 @@ class AgentOrchestrator:
                 step_row.state = TaskState.FAILED
                 step_row.error = {"code": ErrorCategory.UNKNOWN_TOOL.value}
                 await self._save(session, task)
-                await self._fail(session, sm, task, "Planned tool is not registered.")
+                await self._fail(
+                    session,
+                    sm,
+                    task,
+                    "Planned tool is not registered.",
+                    code=ErrorCategory.UNKNOWN_TOOL,
+                )
                 return
 
             if (
@@ -386,7 +401,7 @@ class AgentOrchestrator:
             await self._wait_for_user(session, sm, task, question, "recovery")
             return False
 
-        await self._fail(session, sm, task, decision.reason)
+        await self._fail(session, sm, task, decision.reason, code=error_code)
         return False
 
     async def _call_tool(self, session: AsyncSession, task: TaskRow, tool_id: str, arguments: dict):
@@ -469,6 +484,7 @@ class AgentOrchestrator:
         sm.transition(TaskState.FAILED)
         task.completed_at = _now()
         task.failure_reason = reason
+        task.failure_category = code
         await self._save(session, task)
         await event_bus.publish_type(EventType.TASK_FAILED, task.correlation_id, {"reason": reason})
         _clear_cancellation(task.id)

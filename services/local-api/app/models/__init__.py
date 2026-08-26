@@ -15,6 +15,7 @@ from app.models.setting import SystemSetting
 from app.models.task import Task, TaskStep
 from app.models.tool import Permission, PermissionGrant, Tool
 from app.models.user import User
+from app.models.voice import VoiceSessionRow
 
 __all__ = [
     "Application",
@@ -34,5 +35,6 @@ __all__ = [
     "TaskStep",
     "Tool",
     "User",
+    "VoiceSessionRow",
     "Workflow",
 ]

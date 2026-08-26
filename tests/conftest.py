@@ -39,6 +39,7 @@ from app.services.computer_control import register_computer_control_tools
 from app.services.computer_control.backends import build_backend_bundle
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
+from app.services.voice.register import init_voice_manager
 from veyra_contracts import RiskLevel
 
 get_settings.cache_clear()
@@ -91,6 +92,7 @@ async def _reset_state(request):
     register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
     register_vision_tools(tool_registry, bundle)
     init_orchestrator(tool_registry, settings)
+    init_voice_manager()
     yield
 
 

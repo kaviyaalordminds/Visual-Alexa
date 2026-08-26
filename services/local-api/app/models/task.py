@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import JSON, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
-from veyra_contracts import Confidence, RiskLevel, TaskPriority, TaskState
+from veyra_contracts import Confidence, ErrorCategory, RiskLevel, TaskPriority, TaskState
 
 from app.db.base import Base, IDMixin, TimestampMixin
 
@@ -40,6 +40,15 @@ class Task(Base, IDMixin, TimestampMixin):
     risk_level: Mapped[RiskLevel | None] = mapped_column(Enum(RiskLevel), nullable=True)
     requires_confirmation: Mapped[bool] = mapped_column(default=False)
     failure_reason: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # Phase 5 addition (docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md §6): the
+    # orchestrator already knows *why* a task failed at the moment it fails
+    # (an ErrorCategory), but previously only persisted the free-text
+    # `failure_reason`. ResponseGenerator needs the real category — e.g. to
+    # tell CAPABILITY_UNAVAILABLE apart from an ordinary failure (brief
+    # §85-86) — so it's now persisted alongside the reason instead of lost.
+    failure_category: Mapped[ErrorCategory | None] = mapped_column(
+        Enum(ErrorCategory), nullable=True
+    )
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Not named `metadata` — reserved on SQLAlchemy declarative models.
     extra_metadata: Mapped[dict] = mapped_column(JSON, default=dict)

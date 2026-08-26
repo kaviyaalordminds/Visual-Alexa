@@ -153,6 +153,24 @@ class ErrorCategory(StrEnum):
     UNKNOWN_TOOL = "UNKNOWN_TOOL"
     CAPABILITY_UNAVAILABLE = "CAPABILITY_UNAVAILABLE"
 
+    # --- Phase 5: voice intelligence engine ---
+    # docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md §6, brief §112-113.
+    MIC_NOT_FOUND = "MIC_NOT_FOUND"
+    MIC_PERMISSION_DENIED = "MIC_PERMISSION_DENIED"
+    AUDIO_INPUT_FAILED = "AUDIO_INPUT_FAILED"
+    AUDIO_OUTPUT_FAILED = "AUDIO_OUTPUT_FAILED"
+    WAKE_WORD_ERROR = "WAKE_WORD_ERROR"
+    VAD_ERROR = "VAD_ERROR"
+    STT_ERROR = "STT_ERROR"
+    STT_TIMEOUT = "STT_TIMEOUT"
+    LANGUAGE_UNKNOWN = "LANGUAGE_UNKNOWN"
+    LOW_CONFIDENCE = "LOW_CONFIDENCE"
+    TTS_ERROR = "TTS_ERROR"
+    TTS_TIMEOUT = "TTS_TIMEOUT"
+    CLOUD_PROVIDER_ERROR = "CLOUD_PROVIDER_ERROR"
+    VOICE_CANCELLED = "VOICE_CANCELLED"
+    SESSION_TIMEOUT = "SESSION_TIMEOUT"
+
 
 class EventType(StrEnum):
     """docs/architecture/12-EVENTS.md §2. Phase 4
@@ -189,6 +207,26 @@ class EventType(StrEnum):
     TASK_CANCELLED = "task.cancelled"
     TASK_FAILED = "task.failed"
     TASK_TIMED_OUT = "task.timed_out"
+
+    # --- Phase 5: voice intelligence engine ---
+    # docs/phase-5/VOICE-EVENTS.md, brief §44-45. These describe the voice
+    # pipeline itself (audio -> transcript -> response); they never
+    # duplicate the task.* events above, which still fire exactly as
+    # Phase 4 defined them for whatever Task a voice turn creates.
+    VOICE_WAKE_DETECTED = "voice.wake_detected"
+    VOICE_LISTENING_STARTED = "voice.listening_started"
+    VOICE_LISTENING_STOPPED = "voice.listening_stopped"
+    VOICE_TRANSCRIPT_PARTIAL = "voice.transcript.partial"
+    VOICE_TRANSCRIPT_FINAL = "voice.transcript.final"
+    VOICE_LANGUAGE_DETECTED = "voice.language.detected"
+    VOICE_INTENT_RECEIVED = "voice.intent.received"
+    VOICE_RESPONSE_STARTED = "voice.response.started"
+    VOICE_RESPONSE_FINISHED = "voice.response.finished"
+    VOICE_INTERRUPTED = "voice.interrupted"
+    VOICE_ERROR = "voice.error"
+    # UI-state events prepared for a future avatar (brief §69) — no
+    # avatar/animation implementation ships in Phase 5, only the event.
+    VOICE_UI_STATE_CHANGED = "voice.ui_state.changed"
 
 
 class RecoveryStrategy(StrEnum):

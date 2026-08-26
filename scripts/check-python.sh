@@ -10,6 +10,7 @@ ruff check \
   "$REPO_ROOT/services/local-api" \
   "$REPO_ROOT/services/computer-control" \
   "$REPO_ROOT/services/vision" \
+  "$REPO_ROOT/services/voice" \
   "$REPO_ROOT/packages/contracts/python" \
   "$REPO_ROOT/tests"
 
@@ -21,6 +22,9 @@ echo "== mypy: veyra-computer-control =="
 
 echo "== mypy: veyra-vision =="
 (cd "$REPO_ROOT/services/vision" && mypy vision)
+
+echo "== mypy: veyra-voice =="
+(cd "$REPO_ROOT/services/voice" && mypy voice)
 
 echo "== mypy: local-api =="
 (cd "$REPO_ROOT/services/local-api" && mypy app)
