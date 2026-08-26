@@ -31,7 +31,9 @@ from app.db.session import SessionLocal
 from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
 from app.services.computer_control import register_computer_control_tools
+from app.services.computer_control.backends import build_backend_bundle
 from app.services.tool_registry import tool_registry
+from app.services.vision import register_vision_tools
 
 settings = get_settings()
 
@@ -42,7 +44,9 @@ async def lifespan(app: FastAPI):
     register_default_tools(tool_registry)
     async with SessionLocal() as session:
         application_registry = await load_application_registry(session)
-    register_computer_control_tools(tool_registry, settings, application_registry)
+    bundle = build_backend_bundle()
+    register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
+    register_vision_tools(tool_registry, bundle)
     yield
 
 

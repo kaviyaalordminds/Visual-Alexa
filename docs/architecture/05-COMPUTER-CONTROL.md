@@ -43,11 +43,13 @@ FilesystemEngine       # search, metadata, open, create/copy/move/rename
 ProcessBackend           # read-only enumerate/inspect —
                      # computer_control.processes (psutil,
                      # cross-platform). No termination capability exists.
-ScreenBackend              # capture (gated behind
+ScreenBackend              # capture + capture_region (gated behind
                      # screen_observation.enabled AND
                      # computer_control.enabled) —
                      # computer_control.screen (mss, cross-platform,
-                     # verified against a real Xvfb display). No OCR yet.
+                     # verified against a real Xvfb display). OCR (Phase 3)
+                     # is a separate component — vision.ocr.engine.OCREngine
+                     # — consuming this backend's output, not part of it.
 KeyboardBackend             # text entry via a mandatory, structurally
                      # enforced InputTarget, never global key injection
                      # — computer_control.windows.keyboard (real,
@@ -98,11 +100,17 @@ implementation a stub. **Phase 2** delivers real implementations for
 tiers 1 (native API — filesystem, application/window control via Win32)
 and 2 (UI Automation — `ui.*`/`mouse.*`/`keyboard.*`), with
 `ToolResult.evidence_tier_used` now genuinely populated per call (not just
-modeled) — verified end-to-end against a live server. Tiers 3–7
-(accessibility-tree fallback beyond UIA, app-specific integration, browser
-DOM, OCR, vision-model grounding) and tier 8 (coordinate fallback) remain
-unimplemented — no tool in Phase 2 exposes a coordinate-only entry point
-at all, so there is nothing to "fall back to" yet, which is a deliberate
-scope boundary, not an oversight. See
-`docs/phase-2/WINDOWS-UI-AUTOMATION.md` and
-`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md`.
+modeled) — verified end-to-end against a live server. **Phase 3**
+(`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md`) adds tier 6 (OCR, real —
+`vision.ocr.engine.OCREngine`, `docs/phase-3/OCR.md`) and the tier 7
+abstraction (`vision.core.vision_provider.VisionProvider`; only
+`NotConfiguredVisionProvider` ships — `docs/phase-3/VISION-PROVIDER.md`),
+plus a tree-walking extension to tier 2
+(`UIAutomationBackend.get_tree` — `docs/phase-3/UI-TREE.md`). Tier 3
+(accessibility-tree fallback beyond UIA), tier 4 (app-specific
+integration), tier 5 (browser DOM), and tier 8 (coordinate fallback)
+remain unimplemented — no tool through Phase 3 exposes a coordinate-only
+entry point at all, a deliberate scope boundary carried forward from
+Phase 2, not an oversight. See `docs/phase-2/WINDOWS-UI-AUTOMATION.md`,
+`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md`, and
+`docs/phase-3/VISUAL-PERCEPTION-ARCHITECTURE.md`.

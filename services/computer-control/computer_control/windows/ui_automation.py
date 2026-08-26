@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from computer_control.core.models import Rect, UIElementInfo
+from computer_control.core.models import Rect, UIElementInfo, UIElementNode
 from computer_control.core.selectors import UISelector
 
 
@@ -46,6 +46,47 @@ def _element_to_info(element: Any) -> UIElementInfo:
         enabled=bool(element.is_enabled()),
         visible=bool(element.is_visible()),
         bounds=Rect(left=rect.left, top=rect.top, width=rect.width(), height=rect.height()),
+    )
+
+
+# docs/phase-3/UI-TREE.md §3 — control types/automation-id substrings that
+# indicate a password/secret entry field, used to flag `is_password` from
+# real UIA metadata rather than guessing from screen text. Matches the
+# brief's 'at minimum via UIA password-field metadata where available.'
+_PASSWORD_MARKERS = ("password", "passwd", "secret", "pwd")
+
+
+def _is_password_element(element: Any, info: UIElementInfo) -> bool:
+    try:
+        if bool(getattr(element.element_info, "is_password", lambda: False)()):
+            return True
+    except Exception:
+        pass
+    haystack = " ".join(
+        filter(None, [info.automation_id, info.name, info.class_name, info.control_type])
+    ).lower()
+    return any(marker in haystack for marker in _PASSWORD_MARKERS)
+
+
+def _element_to_node(element: Any, depth: int, max_depth: int) -> UIElementNode:
+    info = _element_to_info(element)
+    children: list[UIElementNode] = []
+    if depth < max_depth:
+        try:
+            child_elements = element.children()
+        except Exception:
+            child_elements = []
+        for child in child_elements:
+            try:
+                children.append(_element_to_node(child, depth + 1, max_depth))
+            except Exception:
+                # docs/phase-3 §7 — never let one bad descendant abort the
+                # whole tree walk; skip it and keep going.
+                continue
+    return UIElementNode(
+        **info.model_dump(),
+        children=children,
+        is_password=_is_password_element(element, info),
     )
 
 
@@ -98,3 +139,21 @@ class WindowsUIAutomationBackend:
             return True
         except Exception:
             return False
+
+    async def get_tree(
+        self, window_title: str | None = None, max_depth: int = 8
+    ) -> UIElementNode:
+        """docs/phase-3/UI-TREE.md — walks the real UIA descendant tree,
+        bounded by `max_depth`. A failure on any individual descendant is
+        skipped (see `_element_to_node`) rather than aborting the whole
+        walk, since a single stale/inaccessible control is common in real
+        UIs and must never make perception unusable."""
+        import pywinauto
+
+        if window_title:
+            root = pywinauto.Desktop(backend="uia").window(
+                title_re=f".*{re.escape(window_title)}.*"
+            )
+        else:
+            root = pywinauto.Desktop(backend="uia")
+        return _element_to_node(root.wrapper_object(), depth=0, max_depth=max_depth)

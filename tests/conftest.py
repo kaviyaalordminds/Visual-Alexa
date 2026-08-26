@@ -35,7 +35,9 @@ from app.models.setting import SystemSetting
 from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
 from app.services.computer_control import register_computer_control_tools
+from app.services.computer_control.backends import build_backend_bundle
 from app.services.tool_registry import tool_registry
+from app.services.vision import register_vision_tools
 from veyra_contracts import RiskLevel
 
 get_settings.cache_clear()
@@ -84,7 +86,9 @@ async def _reset_state(request):
 
     settings = get_settings()
     register_default_tools(tool_registry)
-    register_computer_control_tools(tool_registry, settings, application_registry)
+    bundle = build_backend_bundle()
+    register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
+    register_vision_tools(tool_registry, bundle)
     yield
 
 
@@ -187,7 +191,17 @@ def fake_computer_control():
 
     settings = get_settings()
     register_computer_control_tools(tool_registry, settings, _fake_app_registry(), bundle=bundle)
-    return {"application": application, "window": window, "ui_automation": ui_automation}
+
+    from vision.testing import FakeVisionProvider
+
+    vision_provider = FakeVisionProvider()
+    register_vision_tools(tool_registry, bundle, vision_provider=vision_provider)
+    return {
+        "application": application,
+        "window": window,
+        "ui_automation": ui_automation,
+        "vision_provider": vision_provider,
+    }
 
 
 def _fake_app_registry():

@@ -93,3 +93,9 @@ class MssScreenBackend:
         result = _capture_region(bounds=window.bounds, display_index=1)
         result.window_handle = window.handle
         return result
+
+    async def capture_region(self, bounds: Rect, display_index: int = 1) -> ScreenCaptureResult:
+        # docs/phase-3/SCREEN-OBSERVATION.md — an explicit sub-rectangle
+        # capture, e.g. re-observing just a single grounded element's
+        # bounds rather than the whole window/display.
+        return _capture_region(bounds=bounds, display_index=display_index)

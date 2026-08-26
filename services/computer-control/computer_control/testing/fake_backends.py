@@ -7,7 +7,14 @@ from __future__ import annotations
 
 import itertools
 
-from computer_control.core.models import ApplicationInfo, UIElementInfo, WindowInfo
+from computer_control.core.models import (
+    ApplicationInfo,
+    Rect,
+    ScreenCaptureResult,
+    UIElementInfo,
+    UIElementNode,
+    WindowInfo,
+)
 from computer_control.core.selectors import UISelector
 
 
@@ -126,6 +133,13 @@ class FakeUIAutomationBackend:
         self._elements: list[UIElementInfo] = []
         self._appear_after_calls: dict[str, int] = {}
         self._call_counts: dict[str, int] = {}
+        self._tree: UIElementNode | None = None
+
+    def seed_tree(self, tree: UIElementNode) -> None:
+        """docs/phase-3/UI-TREE.md testing support — seeds a full
+        (possibly nested) tree for `get_tree()` to return, independent of
+        `seed_element`'s flat list used by find/find_all/click/type."""
+        self._tree = tree
 
     def seed_element(self, element: UIElementInfo, *, appear_after_calls: int = 0) -> None:
         self._elements.append(element)
@@ -161,3 +175,48 @@ class FakeUIAutomationBackend:
     ) -> bool:
         element = await self.find_element(selector, timeout_seconds)
         return element is not None and element.enabled
+
+    async def get_tree(
+        self, window_title: str | None = None, max_depth: int = 8
+    ) -> UIElementNode:
+        if self._tree is not None:
+            return self._tree
+        # No tree seeded: synthesize a flat one-level tree from whatever
+        # elements were seeded via seed_element, so tests that only need
+        # "some tree came back" don't have to seed both.
+        return UIElementNode(
+            automation_id=None,
+            name=window_title or "Desktop",
+            control_type="Window",
+            children=[UIElementNode(**e.model_dump()) for e in self._elements],
+        )
+
+
+class FakeScreenBackend:
+    """Deterministic screen capture double — a real `MssScreenBackend`
+    already works in this environment (verified against Xvfb), so this
+    fake exists only for tests that want to assert capture_region's
+    call shape without a real display."""
+
+    def __init__(self) -> None:
+        self.capture_region_calls: list[Rect] = []
+
+    async def capture_full(self) -> ScreenCaptureResult:
+        return ScreenCaptureResult(image_base64="", width=1920, height=1080, display_index=1)
+
+    async def capture_window(self, handle: str) -> ScreenCaptureResult:
+        return ScreenCaptureResult(
+            image_base64="", width=800, height=600, window_handle=handle
+        )
+
+    async def capture_active_window(self) -> ScreenCaptureResult:
+        return ScreenCaptureResult(image_base64="", width=800, height=600)
+
+    async def capture_region(self, bounds: Rect, display_index: int = 1) -> ScreenCaptureResult:
+        self.capture_region_calls.append(bounds)
+        return ScreenCaptureResult(
+            image_base64="",
+            width=bounds.width,
+            height=bounds.height,
+            display_index=display_index,
+        )

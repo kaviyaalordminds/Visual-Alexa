@@ -21,6 +21,7 @@ from veyra_contracts.devices import (
     DevicePermission,
 )
 from veyra_contracts.enums import (
+    TRUSTED_CONTENT_SOURCES,
     Confidence,
     ConfirmationPolicy,
     ConnectionProtocol,
@@ -49,6 +50,7 @@ from veyra_contracts.tasks import (
 from veyra_contracts.tools import ToolCallRequest, ToolDefinition, ToolResult
 
 __all__ = [
+    "TRUSTED_CONTENT_SOURCES",
     "AmbiguityCandidate",
     "AmbiguityResolution",
     "Command",

@@ -66,6 +66,24 @@ class UIElementInfo(BaseModel):
     supported_patterns: list[str] = Field(default_factory=list)
 
 
+class UIElementNode(UIElementInfo):
+    """docs/phase-3/UI-TREE.md — the one Phase 3 addition to this module.
+    Adds `children` (tree structure) on top of everything `UIElementInfo`
+    already models; used only by `UIAutomationBackend.get_tree`. This is
+    deliberately still the raw, backend-shaped element (still just
+    `UIElementInfo` fields plus recursion) — the platform-independent,
+    normalized `SceneNode` tree that a future AI planner actually consumes
+    lives in the `vision` package (services/vision/vision/core/models.py),
+    not here, per docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md §3: this
+    package stays free of the generic "scene graph" concept."""
+
+    children: list[UIElementNode] = Field(default_factory=list)
+    is_password: bool = False
+
+
+UIElementNode.model_rebuild()
+
+
 class InputContext(BaseModel):
     """docs/phase-2 §23, §16 — every keyboard/mouse/UI operation carries
     this; TARGET_CONTEXT_REQUIRED is returned when it's missing rather than

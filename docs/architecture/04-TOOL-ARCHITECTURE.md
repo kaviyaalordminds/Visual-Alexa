@@ -82,24 +82,32 @@ EventBus.publish(task.progress / tool.executed)
 see `docs/security/08-SENSITIVE-ACTION-POLICY.md`). It is not merely a label.
 
 ## 5. Tool categories (Phase 1 defined; `filesystem`/`windows`/`process`/
-`screen`/`keyboard`/`mouse` implemented in Phase 2)
+`screen`/`keyboard`/`mouse` implemented in Phase 2; `vision` added and
+implemented in Phase 3)
 
 `filesystem`, `windows`, `process`, `screen`, `keyboard`, `mouse`,
-`browser`, `communication`, `media`, `documents`, `system`, `iot` — all
-represented as an enum in `packages/contracts`. Phase 1 shipped one
-`SAFE`-tier stub (`system.get_status`) to prove the registry → policy →
-executor → verify → audit path end-to-end without performing any real OS
-action. **Phase 2** (`docs/phase-2/COMPUTER-CONTROL-DESIGN.md`) registers
-40 real tools across `application`/`window`/`filesystem`/`keyboard`/
-`mouse`/`screen`/`ui` — the `filesystem`, `keyboard`, `mouse`, and `screen`
-categories are genuinely cross-platform and verified in every deployment
-environment; `windows`/`process`-adjacent capabilities (application/window
-control, UI Automation) are real, reviewed Windows-only implementations,
-gated behind platform-capability detection so they fail honestly
-(`PLATFORM_NOT_SUPPORTED`) rather than crash on non-Windows hosts — see
-`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md` §2 for why this environment
-cannot runtime-verify the Windows-only paths. `browser`, `communication`,
-`media`, `documents`, `iot` remain unimplemented, out of Phase 2 scope.
+`vision`, `browser`, `communication`, `media`, `documents`, `system`,
+`iot` — all represented as an enum in `packages/contracts`. Phase 1
+shipped one `SAFE`-tier stub (`system.get_status`) to prove the registry →
+policy → executor → verify → audit path end-to-end without performing any
+real OS action. **Phase 2** (`docs/phase-2/COMPUTER-CONTROL-DESIGN.md`)
+registers 40 real tools across `application`/`window`/`filesystem`/
+`keyboard`/`mouse`/`screen`/`ui` — the `filesystem`, `keyboard`, `mouse`,
+and `screen` categories are genuinely cross-platform and verified in every
+deployment environment; `windows`/`process`-adjacent capabilities
+(application/window control, UI Automation) are real, reviewed
+Windows-only implementations, gated behind platform-capability detection
+so they fail honestly (`PLATFORM_NOT_SUPPORTED`) rather than crash on
+non-Windows hosts — see `docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md` §2
+for why this environment cannot runtime-verify the Windows-only paths.
+**Phase 3** (`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md` §6) adds the
+`vision` category and 9 new tools (`screen.capture_region`,
+`screen.observe`, `ui.get_tree`, `ui.find_all`, `ocr.extract`,
+`vision.analyze`, `vision.locate`, `scene.diff`, `target.ground`) through
+the identical registry/policy path — see
+`docs/phase-3/VISUAL-PERCEPTION-ARCHITECTURE.md` §3. `browser`,
+`communication`, `media`, `documents`, `iot` remain unimplemented, out of
+Phase 3 scope.
 
 ## 6. What must NOT change without architectural review
 

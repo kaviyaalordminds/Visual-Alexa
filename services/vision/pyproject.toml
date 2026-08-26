@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veyra-vision"
+version = "0.1.0"
+description = "VEYRA's visual screen understanding engine (Phase 3) — multi-source perception (UI Automation tree, OCR, screen capture), perception fusion, visual grounding, scene diffing, and privacy/redaction, behind platform-independent interfaces. See docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md."
+requires-python = ">=3.11"
+dependencies = [
+    "veyra-contracts",
+    "veyra-computer-control",
+    # pytesseract shells out to the system `tesseract` binary — it is NOT
+    # Windows-only (unlike pywinauto/pywin32) and is verified working for
+    # real in this Linux environment, including English + Tamil OCR — see
+    # docs/phase-3/OCR.md.
+    "pytesseract>=0.3.10,<1",
+    "Pillow>=10,<12",
+    "mss>=9,<11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.24,<1",
+    "ruff>=0.6,<1",
+    "mypy>=1.11,<2",
+]
+
+[tool.setuptools.packages.find]
+include = ["vision*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP", "RUF"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true

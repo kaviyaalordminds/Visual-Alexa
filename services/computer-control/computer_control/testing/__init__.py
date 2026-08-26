@@ -8,12 +8,14 @@ See docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md §2.
 
 from computer_control.testing.fake_backends import (
     FakeApplicationBackend,
+    FakeScreenBackend,
     FakeUIAutomationBackend,
     FakeWindowBackend,
 )
 
 __all__ = [
     "FakeApplicationBackend",
+    "FakeScreenBackend",
     "FakeUIAutomationBackend",
     "FakeWindowBackend",
 ]

@@ -54,3 +54,30 @@ Delivered: interfaces, the adaptive-observation state mapping, and privacy
 defaults reflected in `SystemSetting` schema (`Vision: NOT ENABLED` is a
 first-class settings value). Not delivered: any actual capture, OCR, or
 vision-model integration.
+
+## 6. Phase 3 scope
+
+Phase 3 (`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md`) fills in this
+document's components, in `services/vision`:
+
+- `ScreenCapture` — extended (not replaced): Phase 2's `MssScreenBackend`
+  gains `capture_region`; capture itself was already real since Phase 2.
+- `OCREngine` — real, `vision.ocr.engine.OCREngine`, tesseract-backed,
+  English + Tamil (`docs/phase-3/OCR.md`).
+- `UIElementDetector`/`AccessibilityTreeReader` — `UIAutomationBackend.get_tree`
+  (Windows-only) plus `vision.core.models.SceneNode` normalization
+  (`docs/phase-3/UI-TREE.md`, `SCENE-GRAPH.md`).
+- `WindowIdentifier`/`ApplicationIdentifier` — reused directly from Phase
+  2's `WindowBackend`/`ApplicationBackend`, not reimplemented
+  (`docs/phase-3/WINDOW-PERCEPTION.md`).
+- `VisualGroundingModel` — abstraction only
+  (`vision.core.vision_provider.VisionProvider`); `NotConfiguredVisionProvider`
+  is the only shipped implementation (`docs/phase-3/VISION-PROVIDER.md`).
+- `TemporalStateComparator` — `vision.core.diff.compute_scene_diff`
+  (`docs/phase-3/SCENE-DIFF.md`).
+
+The adaptive-observation and privacy-default rules in §2/§4 above are
+unchanged and now enforced in code: `screen_observation.enabled` gates
+every pixel-capturing Phase 3 tool exactly as it already gated Phase 2's
+`screen.*` tools, and no continuous capture loop exists anywhere in this
+codebase — see `docs/phase-3/PERFORMANCE.md` §4.

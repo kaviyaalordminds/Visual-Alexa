@@ -12,8 +12,10 @@ from computer_control.core.models import (
     ApplicationInfo,
     InputTarget,
     ProcessInfo,
+    Rect,
     ScreenCaptureResult,
     UIElementInfo,
+    UIElementNode,
     WindowInfo,
 )
 from computer_control.core.selectors import UISelector
@@ -54,6 +56,14 @@ class UIAutomationBackend(Protocol):
     async def type_into_element(
         self, selector: UISelector, text: str, timeout_seconds: float
     ) -> bool: ...
+    async def get_tree(
+        self, window_title: str | None = None, max_depth: int = 8
+    ) -> UIElementNode:
+        """docs/phase-3/UI-TREE.md — full descendant tree of a window (or
+        the desktop root when `window_title` is None). `max_depth` bounds
+        recursion so a pathological UI tree can't produce an unbounded
+        walk (docs/phase-3 §7, 'never an unbounded loop')."""
+        ...
 
 
 class KeyboardBackend(Protocol):
@@ -80,3 +90,8 @@ class ScreenBackend(Protocol):
     async def capture_full(self) -> ScreenCaptureResult: ...
     async def capture_window(self, handle: str) -> ScreenCaptureResult: ...
     async def capture_active_window(self) -> ScreenCaptureResult: ...
+    async def capture_region(self, bounds: Rect, display_index: int = 1) -> ScreenCaptureResult:
+        """docs/phase-3/SCREEN-OBSERVATION.md — captures an explicit
+        sub-rectangle rather than a whole display/window, e.g. for
+        re-observing just the bounds of a single grounded element."""
+        ...

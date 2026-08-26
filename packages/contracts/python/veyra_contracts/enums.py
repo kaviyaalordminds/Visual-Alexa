@@ -23,6 +23,9 @@ class ToolCategory(StrEnum):
     SCREEN = "screen"
     KEYBOARD = "keyboard"
     MOUSE = "mouse"
+    # Phase 3: OCR, vision-model, scene-diff, and visual-grounding tools —
+    # perception, not action; see docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md.
+    VISION = "vision"
     BROWSER = "browser"
     COMMUNICATION = "communication"
     MEDIA = "media"
@@ -197,11 +200,38 @@ class ConnectionProtocol(StrEnum):
 
 class ContentSource(StrEnum):
     """docs/security/07-PROMPT-INJECTION.md §3 — provenance tag distinguishing
-    trusted user instructions from observed (untrusted) content."""
+    trusted user instructions from observed (untrusted) content.
+
+    Phase 3 (docs/phase-3/PROMPT-INJECTION.md) extends this set additively
+    with more granular labels for the visual-perception pipeline. `USER`/
+    `OBSERVED_CONTENT`/`SYSTEM` are the original Phase 1 values and are kept
+    unchanged for backward compatibility with anything already tagging
+    content that way."""
 
     USER = "USER"
     OBSERVED_CONTENT = "OBSERVED_CONTENT"
     SYSTEM = "SYSTEM"
+
+    # --- Phase 3: visual perception trust boundaries ---
+    USER_INPUT = "USER_INPUT"
+    SYSTEM_STATE = "SYSTEM_STATE"
+    UI_OBSERVATION = "UI_OBSERVATION"
+    DOCUMENT_CONTENT = "DOCUMENT_CONTENT"
+    WEB_CONTENT = "WEB_CONTENT"
+    TOOL_RESULT = "TOOL_RESULT"
+    AI_OUTPUT = "AI_OUTPUT"
+
+
+TRUSTED_CONTENT_SOURCES: frozenset[ContentSource] = frozenset(
+    {ContentSource.USER, ContentSource.USER_INPUT, ContentSource.SYSTEM, ContentSource.SYSTEM_STATE}
+)
+"""The one place 'which sources may authorize an action' is decided
+(docs/phase-3/PROMPT-INJECTION.md). Everything else — including
+UI_OBSERVATION and WEB_CONTENT — is untrusted by default: text observed on
+screen, in a document, or on a web page must never be treated as
+equivalent to a direct user instruction, no matter how imperative it
+reads. A future AI planner must check membership in this set before ever
+treating a ContentSource as authorization to act."""
 
 
 class Confidence(StrEnum):
