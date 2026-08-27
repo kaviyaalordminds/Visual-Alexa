@@ -84,7 +84,11 @@ class TaskState(StrEnum):
     """docs/architecture/14-TASK-LIFECYCLE.md. Phase 4
     (docs/phase-4/TASK-STATE-MACHINE.md) adds TIMED_OUT additively — a
     budget exhaustion (max_steps/timeout_seconds) is now distinguishable
-    from an ordinary tool failure rather than folding into FAILED."""
+    from an ordinary tool failure rather than folding into FAILED. Phase 5
+    (docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md) adds PAUSED additively —
+    a real, cooperative pause distinct from WAITING_PERMISSION/
+    WAITING_USER (neither of which is user-initiated the way a voice
+    "Wait" interruption is)."""
 
     RECEIVED = "RECEIVED"
     UNDERSTANDING = "UNDERSTANDING"
@@ -95,6 +99,7 @@ class TaskState(StrEnum):
     VERIFYING = "VERIFYING"
     RECOVERING = "RECOVERING"
     WAITING_USER = "WAITING_USER"
+    PAUSED = "PAUSED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"

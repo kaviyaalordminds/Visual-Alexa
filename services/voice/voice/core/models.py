@@ -125,6 +125,20 @@ class VoiceSession(BaseModel):
     # more than one turn's worth — see voice.core.followup.
     last_candidates: list[AmbiguityCandidate] = Field(default_factory=list)
     last_task_goal: str | None = None
+    # docs/phase-5 §112 — set when a low-confidence "<verb> <target>"
+    # utterance produced a "Did you say X?" clarification instead of a
+    # Task; the *next* utterance answers that question rather than
+    # starting a new command. See voice.core.mishear.
+    pending_correction: str | None = None
+
+
+class MishearSuggestion(BaseModel):
+    """docs/phase-5 §112 — `suggest_correction`'s output.
+    `suggested_target` is always a name that actually exists (from the
+    caller-supplied candidate list), never fabricated."""
+
+    corrected_text: str
+    suggested_target: str
 
 
 class TaskOutcome(BaseModel):

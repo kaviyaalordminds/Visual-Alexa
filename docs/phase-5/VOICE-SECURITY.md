@@ -30,6 +30,27 @@ Voice biometrics/speaker authentication are explicitly out of scope this
 phase (brief §49) — `parse_confirmation` classifies *what* was said, never
 *who* said it.
 
+A denial embedded in a longer sentence ("Actually, don't open it" — brief
+acceptance test #10's live-correction scenario) is also recognized as
+`DENY`, via a word-boundary search of the same `_DENY_PHRASES` set
+(`voice/core/confirmation.py`) — deliberately asymmetric: this leniency
+exists *only* for `DENY`, never `AFFIRM`. A false `DENY` just re-asks or
+cancels safely; a false `AFFIRM` would authorize something. This is
+exactly why "yeah... maybe" (which contains the bare word "yeah") still
+resolves to `UNCLEAR` rather than `AFFIRM` — the embedded-phrase leniency
+is never applied to the affirm list, still gated by the same confidence
+floor either way.
+
+## 2b. Real task pausing does not weaken this either (`BARGE-IN.md` §5)
+
+`TaskState.PAUSED`/`resume_after_pause` add a real pause/resume mechanism,
+but resuming a pause was never treated as a security decision — it's the
+same `AFFIRM`/`DENY`/`UNCLEAR` classification `_handle_confirmation` uses
+(now also accepting "continue"/"resume"), still confidence-gated, and any
+step in the resumed plan that independently needs confirmation still goes
+through the real Policy Engine on its own. Pausing/resuming never creates
+a `PermissionGrant` and never skips one that would otherwise be required.
+
 ## 3. No remote device / IoT access via voice (brief §85-86)
 
 No IoT or remote-device tool is registered anywhere in the Tool Registry

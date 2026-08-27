@@ -29,7 +29,7 @@ from app.services.agent.confirmation_actions import (
     NoPendingConfirmationError,
     apply_confirmation_decision,
 )
-from app.services.agent.orchestrator import request_cancellation
+from app.services.agent.orchestrator import request_cancellation, request_pause
 from app.services.agent.register import get_orchestrator
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ _ACTIVE_STATES = frozenset(
         TaskState.VERIFYING,
         TaskState.RECOVERING,
         TaskState.WAITING_USER,
+        TaskState.PAUSED,
     }
 )
 
@@ -182,6 +183,42 @@ async def cancel_task(task_id: str, session: AsyncSession = Depends(get_session)
     row = await _get_task_or_404(task_id, session)
     if row.state in _ACTIVE_STATES:
         request_cancellation(task_id)
+    return TaskOut.model_validate(row)
+
+
+@router.post("/{task_id}/pause", response_model=TaskOut)
+async def pause_task(task_id: str, session: AsyncSession = Depends(get_session)) -> TaskOut:
+    """docs/phase-5/BARGE-IN.md — the same cooperative-signal pattern as
+    `/cancel`: sets a signal the running orchestrator checks between
+    steps. A task not currently active is a no-op, not an error."""
+    row = await _get_task_or_404(task_id, session)
+    if row.state in _ACTIVE_STATES:
+        request_pause(task_id)
+    return TaskOut.model_validate(row)
+
+
+async def _resume_after_pause_in_background(task_id: str) -> None:
+    async with SessionLocal() as session:
+        result = await session.execute(select(TaskRow).where(TaskRow.id == task_id))
+        row = result.scalars().first()
+        if row is None:
+            return
+        try:
+            await get_orchestrator().resume_after_pause(session, row)
+        except Exception:
+            logger.exception("agent.task_resume_after_pause_failed", extra={"task_id": task_id})
+
+
+@router.post("/{task_id}/resume", response_model=TaskOut)
+async def resume_task(task_id: str, session: AsyncSession = Depends(get_session)) -> TaskOut:
+    """docs/phase-5/BARGE-IN.md — resumes the *same* remaining plan a
+    PAUSED task was holding, never a full replan. Nothing to authorize
+    here (unlike `/confirm`) — pausing was never a security gate, just a
+    cooperative "wait a moment"."""
+    row = await _get_task_or_404(task_id, session)
+    if row.state != TaskState.PAUSED:
+        raise HTTPException(status_code=409, detail=f"Task is '{row.state.value}', not PAUSED.")
+    _spawn_background(_resume_after_pause_in_background(task_id))
     return TaskOut.model_validate(row)
 
 

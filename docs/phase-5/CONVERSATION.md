@@ -17,12 +17,17 @@ already-transcribed text — no STT dependency itself. Per turn:
 
 1. Barge-in check if `VoiceState.RESPONDING` (`BARGE-IN.md`).
 2. `TRANSCRIBING → UNDERSTANDING` (language detection + normalization).
-3. If a task is paused at `WAITING_PERMISSION`, the utterance is parsed as
-   a confirmation reply instead of a new command (`VOICE-SECURITY.md`).
-4. Otherwise: `resolve_followup` rewrites an ordinal/pronoun reference
-   against `VoiceSession.last_candidates`/`last_task_goal`, then a new
-   `Task` is created with the resolved text as `description` and run.
-5. `ResponseGenerator` turns the resulting `TaskState` into speech.
+3. If a task is waiting at `WAITING_PERMISSION`, the utterance is parsed
+   as a confirmation reply (`VOICE-SECURITY.md`); if it's genuinely
+   `PAUSED` (`BARGE-IN.md` §5), it's parsed as a resume/cancel reply
+   instead — either way, not a new command.
+4. If the previous turn asked "Did you say X?" (a mishear clarification,
+   `STT.md` §6), the reply answers that instead.
+5. Otherwise: `resolve_followup` rewrites an ordinal/pronoun reference
+   against `VoiceSession.last_candidates`/`last_task_goal`, a mishear
+   check runs against real registered names, then a new `Task` is
+   created with the resolved text as `description` and run.
+6. `ResponseGenerator` turns the resulting `TaskState` into speech.
 
 ## 3. Follow-up / pronoun resolution (brief §28-31)
 
@@ -46,18 +51,22 @@ Phase 6's permanent memory.
 ## 4. Corrections
 
 `"Actually, I meant Spotify"` is not special-cased — it's just another
-utterance. If a task is still paused waiting for input, the correction is
+utterance. If a task is still waiting for input, the correction is
 resolved the same way any follow-up is; if the prior task already
-completed, it becomes an ordinary new command. No dedicated "correction"
-grammar exists — the brief's acceptance test §129 (live correction
-stopping speech) is satisfied by barge-in (`BARGE-IN.md`) plus ordinary
-re-submission, not a third mechanism.
+completed, it becomes an ordinary new command. Where a correction arrives
+*while a confirmation is specifically pending* ("Actually, don't open
+it"), `parse_confirmation`'s embedded-`DENY` matching (`VOICE-SECURITY.md`
+§2) recognizes it as a denial rather than leaving it `UNCLEAR` — brief
+acceptance test #10. No dedicated "correction" grammar beyond that exists
+— barge-in (`BARGE-IN.md`) plus ordinary re-submission handles the rest.
 
 ## 5. Verified
 
-`tests/integration/test_voice_conversation.py` (8 tests) and
+`tests/integration/test_voice_conversation.py` (15 tests) and
 `tests/integration/test_voice_api.py` (3 tests) drive this manager against
-the real `AgentOrchestrator`/Policy Engine/filesystem sandbox — completion,
-failure, capability-unavailable, ambiguity + follow-up, confirmation
-pause/resume/deny, barge-in, and transcript logging are all exercised for
-real, not modeled.
+the real `AgentOrchestrator`/Policy Engine/filesystem sandbox —
+completion, failure, capability-unavailable, ambiguity + follow-up,
+confirmation pause/resume/deny, a real `TaskState.PAUSED` task resumed on
+"continue," mishear clarification, a live-correction sentence denying a
+pending confirmation, barge-in, and transcript logging are all exercised
+for real, not modeled.

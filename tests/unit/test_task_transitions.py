@@ -74,6 +74,20 @@ def test_budget_exhaustion_reaches_timed_out_from_every_active_state():
         assert is_legal_transition(state, TaskState.TIMED_OUT)
 
 
+def test_executing_can_pause_and_resume():
+    """docs/phase-5/BARGE-IN.md — a real, cooperative pause (the voice
+    layer's "Wait" interruption), distinct from WAITING_PERMISSION/
+    WAITING_USER."""
+    assert is_legal_transition(TaskState.EXECUTING, TaskState.PAUSED)
+    assert is_legal_transition(TaskState.PAUSED, TaskState.EXECUTING)
+
+
+def test_paused_only_resumes_or_cancels_never_skips_to_terminal():
+    assert illegal_task_transition(TaskState.PAUSED, TaskState.COMPLETED)
+    assert illegal_task_transition(TaskState.PAUSED, TaskState.FAILED)
+    assert is_legal_transition(TaskState.PAUSED, TaskState.CANCELLED)
+
+
 def test_task_budget_rejects_unbounded_values():
     import pytest
     from pydantic import ValidationError

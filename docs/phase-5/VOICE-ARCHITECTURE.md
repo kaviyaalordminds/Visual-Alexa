@@ -16,8 +16,8 @@ time, and none of it can execute a tool directly — see `CONVERSATION.md`.
 - `services/voice/voice/core/` — pure Python, no I/O, no OS dependency:
   enums, pydantic models, `state_machine.py`, `language.py`,
   `normalizer.py`, `interruption.py`, `confirmation.py`, `response.py`,
-  `connectivity.py`, `followup.py`, `pronunciation.py`, `privacy.py`.
-  Fully real, fully unit-tested (`tests/unit/test_voice_*.py`).
+  `connectivity.py`, `followup.py`, `pronunciation.py`, `privacy.py`,
+  `mishear.py`. Fully real, fully unit-tested (`tests/unit/test_voice_*.py`).
 - `services/voice/voice/providers/base.py` — the `AudioInput`/
   `AudioOutput`/`VoiceActivityDetector`/`WakeWordDetector`/
   `SpeechRecognitionProvider`/`SpeechSynthesisProvider` `Protocol`s, plus

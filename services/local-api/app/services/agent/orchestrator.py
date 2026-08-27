@@ -63,6 +63,25 @@ def _clear_cancellation(task_id: str) -> None:
     _cancellation_events.pop(task_id, None)
 
 
+# Phase 5 (docs/phase-5/BARGE-IN.md) — a real, cooperative pause signal,
+# the same in-memory-registry pattern as `_cancellation_events` above and
+# for the same reason: this process is the only one that ever runs a task.
+_pause_events: dict[str, asyncio.Event] = {}
+
+
+def request_pause(task_id: str) -> None:
+    _pause_events.setdefault(task_id, asyncio.Event()).set()
+
+
+def _is_paused(task_id: str) -> bool:
+    event = _pause_events.get(task_id)
+    return event is not None and event.is_set()
+
+
+def _clear_pause(task_id: str) -> None:
+    _pause_events.pop(task_id, None)
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -158,8 +177,25 @@ class AgentOrchestrator:
         task.total_steps = len(plan.steps)
         task.risk_level = plan.risk_level
         task.requires_confirmation = plan.requires_confirmation
+        # WAITING_PERMISSION here is a pure in-memory formality — the state
+        # machine's own legal-transition table requires every plan to pass
+        # through this gate on its way to EXECUTING (PLANNING's only legal
+        # exits are WAITING_PERMISSION/WAITING_USER), but a plan that
+        # doesn't actually need confirmation was never really "waiting" for
+        # anything. `transition()` itself does no I/O, only `_save` does —
+        # a real bug this phase's own verification found: persisting
+        # WAITING_PERMISSION with its own `_save()` call here (a real DB
+        # round-trip) before immediately superseding it with EXECUTING
+        # opened a genuine race window where a concurrent `GET /tasks/{id}`
+        # could observe a task "waiting for permission" that was never
+        # actually going to ask for any — not just a test-flakiness
+        # artifact, a real client could see this in production too. One
+        # `_save()` after both transitions means WAITING_PERMISSION is
+        # never independently persisted/observable unless a step later in
+        # `_execute_plan` genuinely needs it (that path builds its own real
+        # `confirmation_prompt` and calls `_save` separately, unaffected by
+        # this).
         sm.transition(TaskState.WAITING_PERMISSION)
-        await self._save(session, task)
         sm.transition(TaskState.EXECUTING)
         await self._save(session, task)
 
@@ -193,6 +229,34 @@ class AgentOrchestrator:
         await self._save(session, task)
         await self._execute_plan(session, sm, task, plan, tracker, context)
 
+    async def resume_after_pause(self, session: AsyncSession, task: TaskRow) -> None:
+        """docs/phase-5/BARGE-IN.md — mirrors `resume_after_confirmation`
+        exactly: continues the *same* remaining plan a real PAUSED task
+        was holding, never a full replan. Called when the voice layer
+        recognizes a "continue"/"resume" utterance against a paused
+        task."""
+        sm = TaskStateMachine(task)
+        pending = task.result or {}
+        plan_data = pending.get("paused_plan")
+        if task.state != TaskState.PAUSED or not plan_data:
+            raise ValueError("Task has no pending pause to resume.")
+
+        plan = ExecutionPlan.model_validate(plan_data)
+        budget = TaskBudget(
+            max_steps=task.max_steps,
+            timeout_seconds=task.timeout_seconds,
+            max_recovery_attempts=task.max_recovery_attempts,
+            max_replans=task.max_replans,
+        )
+        tracker = LoopBudgetTracker(budget=budget)
+        context = TaskContext(task_id=task.id, user_goal=task.description)
+
+        sm.transition(TaskState.EXECUTING)
+        task.result = {}
+        await self._save(session, task)
+        await event_bus.publish_type(EventType.TASK_RESUMED, task.correlation_id)
+        await self._execute_plan(session, sm, task, plan, tracker, context)
+
     async def _execute_plan(
         self,
         session: AsyncSession,
@@ -204,6 +268,8 @@ class AgentOrchestrator:
     ) -> None:
         for step in plan.steps:
             if await self._check_cancelled(session, sm, task):
+                return
+            if await self._check_paused(session, sm, task, plan, step):
                 return
             budget_reason = tracker.budget_exceeded_reason()
             if budget_reason:
@@ -391,8 +457,18 @@ class AgentOrchestrator:
             if budget_reason:
                 await self._timeout(session, sm, task, budget_reason)
                 return False
-            sm.transition(TaskState.PLANNING)
-            await self._save(session, task)
+            # Real bug found during this phase's verification: real
+            # replanning isn't implemented yet, so this branch always ends
+            # in failure — but the old code transitioned to PLANNING first
+            # (and persisted it) before calling _fail(), which internally
+            # transitions to FAILED. PLANNING's only legal exits are
+            # WAITING_PERMISSION/WAITING_USER (veyra_contracts._LEGAL_
+            # TRANSITIONS), so that _fail() call would always raise
+            # IllegalTaskTransitionError the moment RecoveryManager ever
+            # actually picked REPLAN (never exercised by an integration
+            # test — only RecoveryManager.decide() was tested in
+            # isolation). RECOVERING -> FAILED is directly legal, so just
+            # fail from here; there is no real PLANNING step to record.
             await self._fail(session, sm, task, "Replanning is not yet supported for this goal.")
             return False
 
@@ -469,8 +545,18 @@ class AgentOrchestrator:
         code: ErrorCategory,
         reason: str,
     ) -> None:
+        # Same race as run()'s old WAITING_PERMISSION->EXECUTING pair: the
+        # state machine only allows PLANNING to exit via WAITING_PERMISSION
+        # or WAITING_USER, so a plan that never actually needed confirmation
+        # (CAPABILITY_UNAVAILABLE/UNSAFE/INVALID) still has to pass through
+        # WAITING_PERMISSION as a pure formality before failing. Persisting
+        # that formality with its own _save() created a real window where a
+        # concurrent GET /tasks/{id} could observe "waiting for permission"
+        # for a task that is actually already failing. transition() is
+        # in-memory only, so doing both transitions before the single
+        # _fail()-owned _save() below makes WAITING_PERMISSION unobservable
+        # here too, exactly as in run().
         sm.transition(TaskState.WAITING_PERMISSION)
-        await self._save(session, task)
         await self._fail(session, sm, task, reason, code=code)
 
     async def _fail(
@@ -507,6 +593,34 @@ class AgentOrchestrator:
         await self._save(session, task)
         await event_bus.publish_type(EventType.TASK_CANCELLED, task.correlation_id)
         _clear_cancellation(task.id)
+        return True
+
+    async def _check_paused(
+        self,
+        session: AsyncSession,
+        sm: TaskStateMachine,
+        task: TaskRow,
+        plan: ExecutionPlan,
+        step: PlanStep,
+    ) -> bool:
+        """docs/phase-5/BARGE-IN.md — a real pause, requested via
+        `request_pause(task_id)` (the voice layer's PAUSE_TASK
+        interruption calls this for real, not only pausing speech).
+        Persists the *remaining* plan (this step onward) exactly like
+        `run`'s own WAITING_PERMISSION branch does, so `resume_after_pause`
+        continues the same plan rather than replanning."""
+        if not _is_paused(task.id):
+            return False
+        sm.transition(TaskState.PAUSED)
+        task.result = {
+            **(task.result or {}),
+            "paused_plan": plan.model_copy(
+                update={"steps": [s for s in plan.steps if s.sequence >= step.sequence]}
+            ).model_dump(mode="json"),
+        }
+        await self._save(session, task)
+        await event_bus.publish_type(EventType.TASK_PAUSED, task.correlation_id)
+        _clear_pause(task.id)
         return True
 
     async def _save(self, session: AsyncSession, task: TaskRow) -> None:

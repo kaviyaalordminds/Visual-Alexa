@@ -26,16 +26,35 @@ reasoning Phase 4 applied to rejecting a `task_events` table
 
 ## 2. What's actually wired to publish them today
 
-The enum values exist and are real (`veyra_contracts.enums.EventType`),
-but `VoiceConversationManager` does not yet call `event_bus.publish_type`
-for any of them — it relies on the underlying `task.*` events Phase 4
-already publishes during `AgentOrchestrator.run`
-(`app/api/events.py`'s existing WebSocket fan-out already carries those).
-Wiring the voice-specific events is straightforward additive work
-(the exact call pattern `orchestrator.py` already uses throughout) left
-for whichever phase first has a real caller (a live desktop UI) that needs
-them — declaring and never firing them would be no better than not having
-them, so this gap is recorded here rather than hidden.
+`VoiceConversationManager` (`app/services/voice/manager.py`) publishes
+seven of the nine events for real, via a `_publish` helper keyed by
+`session.id` as the correlation id (there is no `Task.correlation_id` yet
+at most of these call sites):
+
+| Event | Fires when |
+|---|---|
+| `voice.listening_started` | `start_session` transitions to `LISTENING` |
+| `voice.listening_stopped` | `submit_utterance`, just before `TRANSCRIBING` |
+| `voice.transcript.final` | Every turn, in `_log_turn` — payload is the redacted utterance text |
+| `voice.language.detected` | Every turn, right after `detect_language` — language/confidence/mixed_language |
+| `voice.intent.received` | After `AgentOrchestrator.run` returns — payload is `task.normalized_goal`, the real classified intent |
+| `voice.response.started` | Every turn a response has non-empty text, in `_log_turn` — payload is the redacted response text |
+| `voice.response.finished` | `finish_response`, once real/simulated playback completes |
+| `voice.interrupted` | Top of `_handle_interruption` — payload names the `InterruptionType` |
+
+Three are deliberately **not** published — faking them would be worse than
+not having them:
+
+- `voice.wake_detected` — no real wake-word detector exists in this phase
+  (`AUDIO-PIPELINE.md` §3-4).
+- `voice.transcript.partial` — no real streaming STT provider exists; only
+  a single final transcript per turn is ever available.
+- `voice.ui_state.changed` — no avatar consumes it yet (brief §132
+  explicitly forbids building one this phase); see §3.
+- `voice.error` — no real audio-pipeline error condition (mic/wake-word/
+  STT/TTS failure) can occur in a text-only pipeline with no hardware;
+  publishing it against, say, an `UnknownVoiceSessionError` caller misuse
+  would misrepresent a programming error as a voice-hardware fault.
 
 ## 3. UI-state events for a future avatar (brief §69)
 
@@ -49,7 +68,12 @@ again.
 
 ## 4. Verified
 
-The enum values themselves are exercised by `veyra_contracts`'s existing
-test suite (string-enum membership); no dedicated publish-path test exists
-yet since nothing calls `publish_type` for them (§2) — recorded as a known
-gap in `PHASE-5-TEST-RESULTS.md`.
+`tests/integration/test_voice_events.py` subscribes to the real
+`event_bus` and drives a full voice turn, a barge-in, and a
+secret-bearing utterance through the real `VoiceConversationManager`:
+confirms all seven wired events actually publish in the right places,
+confirms the three unwired events (`voice.wake_detected`,
+`voice.transcript.partial`, `voice.ui_state.changed`) never fire, and
+confirms the `voice.transcript.final` payload is redacted before
+publishing — the same discipline `VOICE-PRIVACY.md` requires for the
+persisted transcript.

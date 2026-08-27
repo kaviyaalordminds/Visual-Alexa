@@ -43,6 +43,26 @@ def cancelled_text(language: Language = Language.EN) -> str:
     return _cancelled_text(language)
 
 
+def did_you_say_text(name: str, language: Language = Language.EN) -> str:
+    """docs/phase-5 §112 — spoken when `suggest_correction` finds a
+    close-but-not-exact match for a low-confidence "<verb> <target>"
+    utterance (brief acceptance test #8, "Did you say Chrome?")."""
+    if language == Language.TA:
+        return f"{name} சொன்னீர்களா?"
+    if language == Language.TA_EN:
+        return f"{name} nu sonninga?"
+    return f"Did you say {name}?"
+
+
+def never_mind_text(language: Language = Language.EN) -> str:
+    """Spoken when the user declines a "Did you say X?" clarification."""
+    if language == Language.TA:
+        return "சரி, பரவாயில்லை."
+    if language == Language.TA_EN:
+        return "Okay, never mind."
+    return "Okay, never mind."
+
+
 def goodbye_text(language: Language = Language.EN) -> str:
     """docs/phase-5 §14 — spoken when an END_SESSION interruption
     ("Goodbye", "Exit") closes a voice session."""
@@ -97,6 +117,16 @@ def _cancelled_text(language: Language) -> str:
     if language == Language.TA_EN:
         return "Okay, cancel pannitten."
     return "Okay, cancelled."
+
+
+def _paused_text(language: Language) -> str:
+    """docs/phase-5/BARGE-IN.md — spoken when a real PAUSE_TASK
+    interruption actually pauses the underlying task (brief §14)."""
+    if language == Language.TA:
+        return "சரி, நிறுத்தி வைத்தேன். தொடரவா?"
+    if language == Language.TA_EN:
+        return "Okay, pause pannitten. Continue pannava?"
+    return "Okay, I've paused. Say 'continue' when you're ready."
 
 
 def _timed_out_text(language: Language) -> str:
@@ -159,6 +189,8 @@ def generate_response(outcome: TaskOutcome, *, language: Language = Language.EN)
         # voice-layer rewrite of it.
         text = outcome.confirmation_prompt or ""
         return VoiceResponse(text=text, language=language, should_speak=bool(text))
+    if outcome.state == TaskState.PAUSED:
+        return VoiceResponse(text=_paused_text(language), language=language, should_speak=True)
     if outcome.state in _IN_PROGRESS_STATES:
         return VoiceResponse(text="", language=language, should_speak=False)
     # Any other state not explicitly handled above — nothing safe to

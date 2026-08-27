@@ -31,12 +31,17 @@ _LEGAL_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     # new — a planned call to an unregistered ('hallucinated') tool is
     # rejected immediately (brief §77), never attempted, so there is
     # nothing to diagnose/retry in RECOVERING first.
+    # Phase 5 (docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md): EXECUTING ->
+    # PAUSED is new — a real, cooperative pause (the voice layer's "Wait"
+    # interruption, brief §14), distinct from WAITING_PERMISSION/
+    # WAITING_USER (neither of which the user asked for mid-execution).
     TaskState.EXECUTING: frozenset(
         {
             TaskState.OBSERVING,
             TaskState.WAITING_PERMISSION,
             TaskState.WAITING_USER,
             TaskState.RECOVERING,
+            TaskState.PAUSED,
             TaskState.FAILED,
             TaskState.TIMED_OUT,
         }
@@ -67,6 +72,9 @@ _LEGAL_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
             TaskState.TIMED_OUT,
         }
     ),
+    # Resuming a pause continues the *same* plan, never a full replan —
+    # same discipline as WAITING_PERMISSION/WAITING_USER's own resume.
+    TaskState.PAUSED: frozenset({TaskState.EXECUTING}),
     # Terminal states: no further transitions.
     TaskState.COMPLETED: frozenset(),
     TaskState.FAILED: frozenset(),

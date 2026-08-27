@@ -19,6 +19,13 @@ def test_no_is_deny():
     assert parse_confirmation("no").decision == ConfirmationDecision.DENY
 
 
+def test_continue_and_resume_are_affirm():
+    """docs/phase-5/BARGE-IN.md — the reply to a real paused task's
+    'Say continue when you're ready.'"""
+    assert parse_confirmation("continue").decision == ConfirmationDecision.AFFIRM
+    assert parse_confirmation("resume").decision == ConfirmationDecision.AFFIRM
+
+
 def test_cancel_is_deny():
     assert parse_confirmation("cancel").decision == ConfirmationDecision.DENY
 
@@ -45,6 +52,28 @@ def test_high_confidence_yes_is_affirm():
 
 def test_empty_text_is_unclear():
     assert parse_confirmation("").decision == ConfirmationDecision.UNCLEAR
+
+
+def test_denial_embedded_in_a_longer_sentence_is_deny():
+    """brief's live-correction scenario: 'Actually, don't open it' must be
+    understood as a denial, not left UNCLEAR just because it isn't an
+    exact phrase match."""
+    result = parse_confirmation("Actually, don't open it")
+    assert result.decision == ConfirmationDecision.DENY
+
+
+def test_embedded_denial_leniency_never_extends_to_affirm():
+    """The asymmetry is the point: embedded-phrase matching only ever
+    helps DENY. 'yeah... maybe' contains the bare word 'yeah' but must
+    still never resolve to AFFIRM."""
+    result = parse_confirmation("yeah... maybe")
+    assert result.decision != ConfirmationDecision.AFFIRM
+    assert result.decision == ConfirmationDecision.UNCLEAR
+
+
+def test_embedded_denial_still_gated_by_confidence():
+    result = parse_confirmation("actually, don't do that", confidence=0.3)
+    assert result.decision == ConfirmationDecision.UNCLEAR
 
 
 def test_unrelated_speech_is_unclear_not_guessed():

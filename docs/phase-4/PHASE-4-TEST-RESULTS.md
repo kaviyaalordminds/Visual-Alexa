@@ -62,6 +62,28 @@ three real defects, all fixed and covered by regression tests:
 All three are documented here rather than quietly folded into the diff,
 per the project's disclosure discipline established in Phase 2/3.
 
+Two more were found later, during Phase 5's own gap-closing verification
+work (`docs/phase-5/PHASE-5-TEST-RESULTS.md` §3 has the full writeup;
+summarized here since the bug is in this phase's `orchestrator.py`, not
+Phase 5's code):
+
+4. **A real race: `run()` and `_fail_at_planning()` each persisted a
+   formality-only `WAITING_PERMISSION` state with its own `_save()`
+   immediately before superseding it** — a concurrent `GET /tasks/{id}`
+   could observe a task falsely "waiting for permission" for a plan that
+   never actually needed confirmation. Fixed by merging each transition
+   pair into a single `_save()` call, since `TaskStateMachine.transition()`
+   itself is pure in-memory.
+5. **`_recover()`'s `REPLAN` branch always raised
+   `IllegalTaskTransitionError` the one time it was ever reached** — it
+   transitioned through `PLANNING` before calling `_fail()`, but
+   `PLANNING`'s only legal exits are `WAITING_PERMISSION`/`WAITING_USER`,
+   never `FAILED`. `RECOVERING → FAILED` is directly legal, so the fix
+   fails from `RECOVERING` without the unreachable `PLANNING` detour.
+
+Both are now covered by regression tests in
+`tests/integration/test_agent_tasks_api.py`.
+
 ## 4. Acceptance tests (brief §97-107)
 
 | # | Scenario | Result |

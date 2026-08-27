@@ -12,6 +12,8 @@ classifies *what was said*, never *who* said it.
 
 from __future__ import annotations
 
+import re
+
 from voice.core.enums import ConfirmationDecision
 from voice.core.models import ConfirmationResult
 
@@ -31,6 +33,13 @@ _AFFIRM_PHRASES: frozenset[str] = frozenset(
         "go ahead",
         "please do",
         "affirmative",
+        # docs/phase-5/BARGE-IN.md — the reply to "Say 'continue' when
+        # you're ready" (a paused-task resume prompt, not a CRITICAL-
+        # action authorization, but still gated by the same confidence
+        # floor and exact-phrase matching).
+        "continue",
+        "resume",
+        "keep going",
     }
 )
 
@@ -55,6 +64,11 @@ _DENY_PHRASES: frozenset[str] = frozenset(
 # action just because the words happened to match.
 _MIN_CONFIDENCE = 0.7
 
+_DENY_PHRASE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(rf"\b{re.escape(phrase)}\b")
+    for phrase in sorted(_DENY_PHRASES, key=len, reverse=True)
+)
+
 
 def parse_confirmation(text: str, *, confidence: float = 1.0) -> ConfirmationResult:
     """docs/phase-5 §46-48. Pure function — no I/O, no model call.
@@ -75,9 +89,20 @@ def parse_confirmation(text: str, *, confidence: float = 1.0) -> ConfirmationRes
     if normalized in _DENY_PHRASES:
         return ConfirmationResult(decision=ConfirmationDecision.DENY, confidence=confidence)
 
+    # A denial embedded in a longer sentence ("Actually, don't open it")
+    # still counts as DENY — brief's own live-correction scenario.
+    # Deliberately asymmetric: this leniency exists ONLY for DENY, never
+    # for AFFIRM. A false DENY just re-asks or cancels safely; a false
+    # AFFIRM would authorize something. This is exactly why "yeah...
+    # maybe" (which contains the bare word "yeah") must still resolve to
+    # UNCLEAR rather than AFFIRM — the embedded-phrase leniency below is
+    # never applied to the affirm list.
+    if any(pattern.search(normalized) for pattern in _DENY_PHRASE_PATTERNS):
+        return ConfirmationResult(decision=ConfirmationDecision.DENY, confidence=confidence)
+
     # Hedged/uncertain phrasing ("yeah... maybe", "i think so", "probably")
-    # is deliberately never phrase-matched to AFFIRM/DENY at all — brief
-    # §48's exact scenario.
+    # is deliberately never phrase-matched to AFFIRM at all — brief §48's
+    # exact scenario.
     return ConfirmationResult(decision=ConfirmationDecision.UNCLEAR, confidence=confidence)
 
 

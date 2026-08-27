@@ -25,6 +25,7 @@ from veyra_contracts import (
     AmbiguityCandidate,
     ErrorCategory,
     ErrorInfo,
+    EventType,
     PermissionDecision,
     TaskBudget,
     TaskState,
@@ -34,21 +35,32 @@ from voice.core.enums import ActivationSource, ConfirmationDecision, Interruptio
 from voice.core.followup import resolve_followup
 from voice.core.interruption import classify_interruption
 from voice.core.language import detect_language
+from voice.core.mishear import suggest_correction
 from voice.core.models import InterruptionResult, Language, TaskOutcome, VoiceResponse
 from voice.core.models import VoiceSession as VoiceSessionModel
 from voice.core.normalizer import normalize_command
 from voice.core.privacy import redact_secrets
-from voice.core.response import ask_yes_no_text, cancelled_text, generate_response, goodbye_text
+from voice.core.response import (
+    ask_yes_no_text,
+    cancelled_text,
+    did_you_say_text,
+    generate_response,
+    goodbye_text,
+    never_mind_text,
+)
 from voice.core.state_machine import VoiceStateMachine
 
 from app.api.deps import get_or_create_local_user
+from app.core.event_bus import event_bus
 from app.models.conversation import Conversation as ConversationRow
 from app.models.conversation import Message as MessageRow
 from app.models.task import Task as TaskRow
 from app.models.voice import VoiceSessionRow
+from app.services import application_registry as application_registry_module
 from app.services.agent.confirmation_actions import apply_confirmation_decision
 from app.services.agent.orchestrator import request_cancellation
 from app.services.agent.register import get_orchestrator
+from app.services.agent.state_machine import TaskStateMachine
 
 # docs/phase-5 §11 — a voice turn's default TaskBudget: matches the common
 # default already used elsewhere for a single bounded turn (see
@@ -58,6 +70,29 @@ _VOICE_TASK_BUDGET = TaskBudget(max_steps=10, timeout_seconds=60, max_recovery_a
 
 def _effective_language(session: VoiceSessionModel) -> Language:
     return session.language if session.language != Language.UNKNOWN else Language.EN
+
+
+def _known_application_names() -> list[str]:
+    """docs/phase-5 §112 — the real, currently-registered application
+    names/aliases `suggest_correction` may propose a "Did you say X?"
+    match from. Never a hard-coded list — mishear clarification can only
+    ever point at something that actually exists in the registry.
+
+    Looks up `application_registry_module.application_registry` fresh on
+    every call rather than importing the name directly: the registry is
+    reloaded and *rebound* at startup (`load_application_registry`'s
+    `global application_registry = ...`), which only updates the
+    `app.services.application_registry` module's own attribute — a
+    `from ... import application_registry` done once at this module's
+    import time would keep pointing at the original, empty registry
+    forever.
+    """
+    names: list[str] = []
+    for entry in application_registry_module.application_registry.list_entries():
+        names.append(entry.name)
+        names.append(entry.identifier)
+        names.extend(entry.aliases)
+    return names
 
 
 class UnknownVoiceSessionError(KeyError):
@@ -130,6 +165,11 @@ class VoiceConversationManager:
         sm.transition(VoiceState.LISTENING)
         self._sessions[session.id] = session
         await self._persist(db, session)
+        await self._publish(
+            session,
+            EventType.VOICE_LISTENING_STARTED,
+            {"activation_source": activation_source.value},
+        )
         return session
 
     async def end_session(self, db: AsyncSession, session_id: str) -> None:
@@ -155,6 +195,7 @@ class VoiceConversationManager:
         if sm.can_transition(VoiceState.IDLE):
             sm.transition(VoiceState.IDLE)
         await self._persist(db, session)
+        await self._publish(session, EventType.VOICE_RESPONSE_FINISHED)
         return session
 
     async def submit_utterance(
@@ -186,12 +227,22 @@ class VoiceConversationManager:
         if session.status in (VoiceState.IDLE, VoiceState.WAKE_DETECTED):
             sm.transition(VoiceState.LISTENING)
 
+        await self._publish(session, EventType.VOICE_LISTENING_STOPPED)
         sm.transition(VoiceState.TRANSCRIBING)
 
         detection = detect_language(raw_text)
         if detection.language != Language.UNKNOWN:
             session.language = detection.language
         normalized = normalize_command(raw_text)
+        await self._publish(
+            session,
+            EventType.VOICE_LANGUAGE_DETECTED,
+            {
+                "language": detection.language.value,
+                "confidence": detection.confidence,
+                "mixed_language": detection.mixed_language,
+            },
+        )
 
         sm.transition(VoiceState.UNDERSTANDING)
 
@@ -205,9 +256,65 @@ class VoiceConversationManager:
             await self._log_turn(db, session, raw_text, response.text)
             return VoiceTurnResult(session=session, response=response)
 
-        effective_text = resolve_followup(normalized.normalized_text, session) or (
-            normalized.normalized_text
-        )
+        if pending_task is not None and pending_task.state == TaskState.PAUSED:
+            response = await self._handle_resume(
+                db, session, sm, pending_task, normalized.normalized_text, stt_confidence
+            )
+            await self._persist(db, session)
+            await self._log_turn(db, session, raw_text, response.text)
+            return VoiceTurnResult(session=session, response=response)
+
+        if session.pending_correction is not None:
+            corrected = session.pending_correction
+            session.pending_correction = None
+            # Not a security-relevant confirmation (nothing is being
+            # authorized, just a name spelled out) — no confidence gate,
+            # unlike `parse_confirmation`'s use in `_handle_confirmation`.
+            reply = parse_confirmation(normalized.normalized_text)
+            language = _effective_language(session)
+
+            if reply.decision == ConfirmationDecision.DENY:
+                response = VoiceResponse(
+                    text=never_mind_text(language), language=language, should_speak=True
+                )
+                sm.transition(VoiceState.RESPONDING)
+                await self._persist(db, session)
+                await self._log_turn(db, session, raw_text, response.text)
+                return VoiceTurnResult(session=session, response=response)
+
+            if reply.decision == ConfirmationDecision.UNCLEAR:
+                session.pending_correction = corrected  # re-ask, don't drop it
+                response = VoiceResponse(
+                    text=ask_yes_no_text(language), language=language, should_speak=True
+                )
+                sm.transition(VoiceState.RESPONDING)
+                await self._persist(db, session)
+                await self._log_turn(db, session, raw_text, response.text)
+                return VoiceTurnResult(session=session, response=response)
+
+            # AFFIRM — proceed to run the corrected command below, exactly
+            # like any other new command.
+            effective_text = corrected
+        else:
+            effective_text = resolve_followup(normalized.normalized_text, session) or (
+                normalized.normalized_text
+            )
+
+            mishear = suggest_correction(
+                effective_text, _known_application_names(), confidence=stt_confidence
+            )
+            if mishear is not None:
+                session.pending_correction = mishear.corrected_text
+                language = _effective_language(session)
+                response = VoiceResponse(
+                    text=did_you_say_text(mishear.suggested_target, language),
+                    language=language,
+                    should_speak=True,
+                )
+                sm.transition(VoiceState.RESPONDING)
+                await self._persist(db, session)
+                await self._log_turn(db, session, raw_text, response.text)
+                return VoiceTurnResult(session=session, response=response)
 
         user = await get_or_create_local_user(db)
         task = TaskRow(
@@ -230,6 +337,11 @@ class VoiceConversationManager:
 
         sm.transition(VoiceState.EXECUTING)
         await get_orchestrator().run(db, task)
+        await self._publish(
+            session,
+            EventType.VOICE_INTENT_RECEIVED,
+            {"task_id": task.id, "intent": task.normalized_goal},
+        )
 
         response = self._respond_to_task(session, task)
         sm.transition(VoiceState.RESPONDING)
@@ -246,6 +358,11 @@ class VoiceConversationManager:
     ) -> VoiceTurnResult | None:
         sm.transition(VoiceState.INTERRUPTED)
         kind = interruption.interruption_type
+        await self._publish(
+            session,
+            EventType.VOICE_INTERRUPTED,
+            {"interruption_type": kind.value if kind else None},
+        )
 
         language = _effective_language(session)
 
@@ -274,12 +391,23 @@ class VoiceConversationManager:
             )
 
         if kind == InterruptionType.PAUSE_TASK:
-            # docs/phase-5/BARGE-IN.md — known limitation: Phase 4's
-            # AgentOrchestrator has no real pause/resume mechanism (only
-            # cancellation and confirmation-resume), so PAUSE_TASK only
-            # ever pauses VEYRA's *speech*, never the underlying task
-            # execution. This is intentionally not represented as a
-            # stronger guarantee than it delivers.
+            # docs/phase-5/BARGE-IN.md — the orchestrator now has a real
+            # pause/resume mechanism (`request_pause`/`resume_after_pause`,
+            # also reachable via HTTP `/tasks/{id}/pause`+`/resume`) for a
+            # task whose execution genuinely runs concurrently with other
+            # requests. A voice turn's own execution does not: `submit_
+            # utterance` awaits `AgentOrchestrator.run` to completion before
+            # this interruption can even be observed, so by the time
+            # PAUSE_TASK is recognized, that run has already reached a
+            # terminal/waiting state — there is no in-flight step left to
+            # pause. Calling `request_pause` here anyway would leave a
+            # dangling flag that could wrongly re-pause a *later*,
+            # unrelated resume of the same task (e.g. after a WAITING_
+            # PERMISSION confirmation) — worse than not pausing at all.
+            # PAUSE_TASK therefore still only pauses VEYRA's *speech*; see
+            # `_handle_resume` for the real, correct integration point —
+            # a task genuinely PAUSED (e.g. via the HTTP endpoint from
+            # another caller) that this session later says "continue" to.
             sm.transition(VoiceState.LISTENING)
             await self._persist(db, session)
             return VoiceTurnResult(
@@ -339,8 +467,55 @@ class VoiceConversationManager:
         sm.transition(VoiceState.RESPONDING)
         return response
 
+    async def _handle_resume(
+        self,
+        db: AsyncSession,
+        session: VoiceSessionModel,
+        sm: VoiceStateMachine,
+        task: TaskRow,
+        normalized_text: str,
+        stt_confidence: float,
+    ) -> VoiceResponse:
+        """docs/phase-5/BARGE-IN.md — the reply to a real PAUSED task's
+        "Say 'continue' when you're ready." Mirrors `_handle_confirmation`
+        exactly, but resuming a pause was never a security gate (brief
+        §14) — any subsequent step in the plan that genuinely needs
+        confirmation still goes through the real Policy Engine/
+        `_handle_confirmation` on its own, unaffected by this."""
+        reply = parse_confirmation(normalized_text, confidence=stt_confidence)
+        language = _effective_language(session)
+
+        if reply.decision == ConfirmationDecision.UNCLEAR:
+            sm.transition(VoiceState.RESPONDING)
+            return VoiceResponse(
+                text=ask_yes_no_text(language), language=language, should_speak=True
+            )
+
+        if reply.decision == ConfirmationDecision.DENY:
+            # A PAUSED task has no running orchestrator loop left to
+            # observe a cooperative cancellation signal (it isn't inside
+            # `_execute_plan` right now) — transition it directly, the
+            # same reasoning `apply_confirmation_decision`'s own DENY path
+            # uses for a paused WAITING_PERMISSION task.
+            TaskStateMachine(task).transition(TaskState.CANCELLED)
+            task.completed_at = _now()
+            task.result = {"outcome": "denied_by_user"}
+            await db.commit()
+            session.active_task_id = None
+            session.last_candidates = []
+            sm.transition(VoiceState.RESPONDING)
+            return VoiceResponse(
+                text=cancelled_text(language), language=language, should_speak=True
+            )
+
+        sm.transition(VoiceState.EXECUTING)
+        await get_orchestrator().resume_after_pause(db, task)
+        response = self._respond_to_task(session, task)
+        sm.transition(VoiceState.RESPONDING)
+        return response
+
     def _respond_to_task(self, session: VoiceSessionModel, task: TaskRow) -> VoiceResponse:
-        if task.state in (TaskState.WAITING_USER, TaskState.WAITING_PERMISSION):
+        if task.state in (TaskState.WAITING_USER, TaskState.WAITING_PERMISSION, TaskState.PAUSED):
             session.active_task_id = task.id
         else:
             session.active_task_id = None
@@ -397,25 +572,48 @@ class VoiceConversationManager:
         """docs/phase-5 §50-57 — transcripts reuse the existing Message
         table (GET /conversations/{id}/messages is the real "get
         transcript" surface), with secrets redacted before anything is
-        written, never after."""
-        if session.conversation_id is None:
-            return
-        db.add(
-            MessageRow(
-                conversation_id=session.conversation_id,
-                role="user",
-                content=redact_secrets(raw_text),
-            )
-        )
-        if response_text:
+        written, never after. Also the one place every turn passes
+        through regardless of which branch handled it, so this is where
+        `voice.transcript.final`/`voice.response.started` are published —
+        both event payloads reuse the same redacted text, never the raw
+        one (docs/phase-5/VOICE-EVENTS.md)."""
+        redacted_raw = redact_secrets(raw_text)
+        await self._publish(session, EventType.VOICE_TRANSCRIPT_FINAL, {"text": redacted_raw})
+
+        if session.conversation_id is not None:
             db.add(
                 MessageRow(
-                    conversation_id=session.conversation_id,
-                    role="assistant",
-                    content=redact_secrets(response_text),
+                    conversation_id=session.conversation_id, role="user", content=redacted_raw
                 )
             )
-        await db.commit()
+        if response_text:
+            redacted_response = redact_secrets(response_text)
+            await self._publish(
+                session, EventType.VOICE_RESPONSE_STARTED, {"text": redacted_response}
+            )
+            if session.conversation_id is not None:
+                db.add(
+                    MessageRow(
+                        conversation_id=session.conversation_id,
+                        role="assistant",
+                        content=redacted_response,
+                    )
+                )
+        if session.conversation_id is not None:
+            await db.commit()
+
+    async def _publish(
+        self, session: VoiceSessionModel, event_type: EventType, payload: dict | None = None
+    ) -> None:
+        """docs/phase-5/VOICE-EVENTS.md — `session.id` is the correlation
+        id for voice-level events (there is no `Task.correlation_id` yet
+        at most of these call sites). Only ever fired at a point this
+        text-only pipeline can genuinely reach today — `voice.wake_detected`,
+        `voice.transcript.partial`, and `voice.ui_state.changed` are
+        declared in `EventType` but have no real trigger in this phase
+        (no real wake-word detector or streaming STT, no avatar) and are
+        deliberately not published here rather than faked."""
+        await event_bus.publish_type(event_type, session.id, payload)
 
     async def _persist(
         self, db: AsyncSession, session: VoiceSessionModel, *, ended: bool = False
