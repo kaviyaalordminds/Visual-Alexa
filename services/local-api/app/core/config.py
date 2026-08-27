@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # allow-all — see computer_control.filesystem.path_policy.PathPolicy.
     filesystem_allowed_roots: list[str] | None = None
 
+    # Phase 8 (docs/phase-8/DOWNLOADS.md) — where PlaywrightBrowserAdapter
+    # saves a browser-triggered download's bytes.
+    browser_downloads_dir: str = "./browser-downloads"
+    # Phase 8 (docs/phase-8/EXTENSION-BRIDGE.md) — brief §73 'validate
+    # origin.' Empty by default: no extension origin is trusted until an
+    # operator explicitly configures one, matching the platform's
+    # default-deny posture everywhere else.
+    browser_extension_origins: list[str] = []
+
 
 @lru_cache
 def get_settings() -> Settings:

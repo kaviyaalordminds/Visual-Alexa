@@ -25,8 +25,13 @@ async def _create(client, description, budget=None):
 async def _wait_terminal(client, task_id, timeout_seconds=5.0):
     deadline = asyncio.get_event_loop().time() + timeout_seconds
     active = {
-        "RECEIVED", "UNDERSTANDING", "PLANNING",
-        "EXECUTING", "OBSERVING", "VERIFYING", "RECOVERING",
+        "RECEIVED",
+        "UNDERSTANDING",
+        "PLANNING",
+        "EXECUTING",
+        "OBSERVING",
+        "VERIFYING",
+        "RECOVERING",
     }
     while asyncio.get_event_loop().time() < deadline:
         resp = await client.get(f"/tasks/{task_id}")

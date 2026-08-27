@@ -28,6 +28,11 @@ RETRYABLE_CATEGORIES: frozenset[ErrorCategory] = frozenset(
         # retrying with the same invalid/missing credential never
         # succeeds — that needs a user action (reconnect), not a retry.
         ErrorCategory.RATE_LIMITED,
+        # Phase 8 (docs/phase-8/ERROR-RECOVERY.md) — a failed navigation
+        # or download is frequently a transient network blip, exactly
+        # like WINDOW_NOT_FOUND above.
+        ErrorCategory.NAVIGATION_FAILED,
+        ErrorCategory.DOWNLOAD_FAILED,
     }
 )
 

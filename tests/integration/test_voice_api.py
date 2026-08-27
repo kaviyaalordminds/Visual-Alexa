@@ -41,9 +41,7 @@ async def test_start_submit_finish_end_round_trip(client, fs_sandbox):
 
 
 async def test_unknown_session_returns_404(client):
-    resp = await client.post(
-        "/voice/sessions/does-not-exist/utterances", json={"text": "hello"}
-    )
+    resp = await client.post("/voice/sessions/does-not-exist/utterances", json={"text": "hello"})
     assert resp.status_code == 404
 
 

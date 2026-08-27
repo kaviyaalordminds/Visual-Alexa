@@ -43,7 +43,10 @@ def test_fused_confidence_at_least_as_high_as_best_single_source():
 def test_password_node_marks_privacy_secret():
     fusion = PerceptionFusion()
     node = SceneNode(
-        name=None, role="Edit", automation_id="pwd", is_password=True,
+        name=None,
+        role="Edit",
+        automation_id="pwd",
+        is_password=True,
         bounds=Rect(left=0, top=0, width=100, height=20),
     )
     fused = fusion.fuse(ui_nodes=[node])

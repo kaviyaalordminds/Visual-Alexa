@@ -10,25 +10,31 @@ architectural review — see `docs/roadmap/DEFINITION-OF-DONE.md`.
 **VEYRA** is a local-first Visual AI Computer Operating Layer, not a voice
 assistant clone, not a chatbot, not a thin wrapper around a computer-use
 model. Full product context: `docs/research/VEYRA_DIFFERENTIATION.md`.
-Current phase: **Phase 7 — universal tool, integration & plugin
-platform**, built on the Phase 1 foundation
-(`docs/roadmap/PHASE-1-SCOPE.md`), Phase 2's computer-control engine
-(`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md`), Phase 3's visual
-perception engine (`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md`), Phase
-4's AI brain / task execution engine
-(`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md`), Phase 5's voice
-intelligence engine (`docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md`), and
-Phase 6's avatar engine (`docs/phase-6/PHASE-6-IMPLEMENTATION-PLAN.md`).
-See `docs/phase-7/PHASE-7-IMPLEMENTATION-PLAN.md` for what Phase 7 added
-and `docs/phase-7/PHASE-7-TEST-RESULTS.md` for what is and isn't
-verified in this environment — Phase 7 built the *platform* only, per
-its own Stop Condition: no real Gmail/WhatsApp/Spotify/browser
-integration, no real smart-home protocol adapter, no remote-PC or
-mobile-device control, no unrestricted shell access ships anywhere in
-this codebase. Do not build Phase 8+ capability (a real WhatsApp/Gmail/
-browser-automation integration, real smart-home/Matter/Home Assistant
-connectivity, long-term personal memory, autonomous background
-behavior) without explicit instruction to begin the next phase.
+Current phase: **Phase 8 — browser & web intelligence engine**, built on
+the Phase 1 foundation (`docs/roadmap/PHASE-1-SCOPE.md`), Phase 2's
+computer-control engine (`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md`),
+Phase 3's visual perception engine
+(`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md`), Phase 4's AI brain /
+task execution engine (`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md`),
+Phase 5's voice intelligence engine
+(`docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md`), Phase 6's avatar engine
+(`docs/phase-6/PHASE-6-IMPLEMENTATION-PLAN.md`), and Phase 7's universal
+tool/integration/plugin platform
+(`docs/phase-7/PHASE-7-IMPLEMENTATION-PLAN.md`). See
+`docs/phase-8/PHASE-8-IMPLEMENTATION-PLAN.md` for what Phase 8 added and
+`docs/phase-8/PHASE-8-TEST-RESULTS.md` for what is and isn't verified in
+this environment — Phase 8 built a real, Playwright-driven browser engine
+(genuine Chromium automation, DOM/accessibility/vision element
+resolution, CAPTCHA/OTP/payment stop conditions, prompt-injection
+defense, a secure but unpackaged extension bridge) per its own Stop
+Condition: no real Gmail/WhatsApp/Spotify integration, no real
+smart-home platform, no remote-PC control, no banking automation or
+autonomous purchasing, no CAPTCHA/OTP/2FA bypass, no unrestricted browser
+control exposed to webpages ships anywhere in this codebase. Do not build
+Phase 9+ capability (a real Gmail/WhatsApp/Spotify integration, a
+packaged browser extension, real smart-home/Matter/Home Assistant
+connectivity, long-term personal memory, autonomous background behavior)
+without explicit instruction to begin the next phase.
 
 ## Product vision
 

@@ -51,3 +51,30 @@ resort exactly as for desktop control.
 Delivered: interfaces and contracts only, plus their place in the tool
 category enum (`browser`). Not delivered: an actual extension, CDP
 integration, or Playwright wiring — explicitly out of Phase 1 scope.
+
+## 7. Phase 8 update — real implementation
+
+Phase 8 (`docs/phase-8/`) built the real thing, following §1's principle
+exactly (DOM/accessibility-first, coordinate click as true last resort —
+see `docs/phase-8/ELEMENT-RESOLUTION.md`). The real component names
+differ from §2's Phase 1 placeholder sketch — mapped here for continuity:
+
+| Phase 1 placeholder | Real Phase 8 component |
+|---|---|
+| `BrowserAgent` | `app/services/browser/tools.py` (the `browser.*` tools themselves, called through the ordinary `ToolRegistry`, not a separate high-level API) |
+| `BrowserToolRegistry` | Not needed — `browser.*` tools register into the one existing `ToolRegistry`, never a second one |
+| `PlaywrightAdapter` | `app/services/browser/adapter.py::PlaywrightBrowserAdapter` |
+| `CDPAdapter` | Not built — Playwright's own CDP usage is sufficient; no second, hand-rolled CDP client |
+| `ChromeExtension` | Not built this phase (no packaged extension ships) |
+| `BrowserBridge` | `app/services/browser/extension_bridge.py::ExtensionBridgeService` — the "Authenticated Local Bridge" half is real and tested even without a packaged extension |
+
+§3's "must eventually understand" list is delivered: tabs, URLs, DOM,
+forms, buttons, links, downloads, navigation events, load state, and the
+authentication boundary (never bypassed) — see
+`docs/phase-8/BROWSER-ARCHITECTURE.md` and
+`docs/phase-8/BROWSER-SECURITY.md`. §4's untrusted-content boundary is
+enforced structurally, not just documented — see
+`docs/phase-8/BROWSER-SECURITY.md` §2. §5's evidence-tier mapping is
+exactly what `ElementFusionEngine` implements, reusing the existing
+`EvidenceTier.BROWSER_DOM`/`ACCESSIBILITY_TREE`/`OCR`/`COORDINATE`
+members rather than a parallel enum.

@@ -23,9 +23,7 @@ async def test_finds_an_element_that_is_present_immediately():
 
 async def test_polls_until_an_element_appears():
     backend = FakeUIAutomationBackend()
-    backend.seed_element(
-        UIElementInfo(automation_id="save-btn", name="Save"), appear_after_calls=3
-    )
+    backend.seed_element(UIElementInfo(automation_id="save-btn", name="Save"), appear_after_calls=3)
     element = await wait_for_element(
         backend,
         UISelector.by_automation_id("save-btn"),

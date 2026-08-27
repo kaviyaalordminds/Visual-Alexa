@@ -5,6 +5,7 @@ import type { ComponentStatus, SystemStatus } from "@veyra/contracts";
 import { getSystemStatus } from "./api";
 import { Avatar } from "./avatar/Avatar";
 import { useAvatarSocket } from "./avatar/useAvatarSocket";
+import BrowserPanel from "./browser/BrowserPanel";
 import DevConsole from "./DevConsole";
 import PlatformPanel from "./platform/PlatformPanel";
 
@@ -89,6 +90,8 @@ export default function App() {
       </dl>
 
       <PlatformPanel />
+
+      <BrowserPanel />
 
       <DevConsole />
     </main>

@@ -146,3 +146,17 @@ discovery.search_tools` is the real, tested answer to brief §26-27's
 "don't hand the model every tool definition" — see
 `docs/phase-7/TOOL-DISCOVERY.md` for why there is no LLM-driven planner
 yet to hand anything to.
+
+## 8. Phase 8 update
+
+35 new `browser.*`/`download.*`/`web.research` tools
+(`docs/phase-8/BROWSER-TOOLS.md`) register through this exact registry —
+no second one, per this document's own §7 note. They are the first real,
+substantial user of `integration_id=None` (core, always-available system
+tools) alongside a genuinely new evidence tier in practice: `browser.click`/
+`browser.type`/`browser.find` report `evidence_tier_used` as
+`BROWSER_DOM`, `OCR`, or `COORDINATE` depending on which resolution tier
+actually resolved the target (`docs/phase-8/ELEMENT-RESOLUTION.md`) —
+`EvidenceTier`'s existing members, unchanged, now exercised by a real
+caller outside the desktop-UI-Automation domain they were originally
+defined for.

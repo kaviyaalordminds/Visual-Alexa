@@ -73,9 +73,7 @@ async def test_transcript_event_payload_is_redacted(db_session, fs_sandbox):
     try:
         manager = get_voice_manager()
         session = await manager.start_session(db_session)
-        await manager.submit_utterance(
-            db_session, session.id, "my password is hunter2 open chrome"
-        )
+        await manager.submit_utterance(db_session, session.id, "my password is hunter2 open chrome")
         events = await _drain(queue)
         transcript_events = [e for e in events if e.type == EventType.VOICE_TRANSCRIPT_FINAL]
         assert transcript_events

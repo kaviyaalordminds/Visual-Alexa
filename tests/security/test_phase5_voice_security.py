@@ -138,9 +138,7 @@ async def test_8_iot_command_is_capability_unavailable_no_device_scan(db_session
     capability configured -> CAPABILITY_UNAVAILABLE, never a network scan
     (there is no device-discovery tool registered at all in this phase)."""
     session = await _start(db_session)
-    result = await get_voice_manager().submit_utterance(
-        db_session, session.id, "turn on the AC"
-    )
+    result = await get_voice_manager().submit_utterance(db_session, session.id, "turn on the AC")
     assert "capability" in result.response.text.lower()
 
 

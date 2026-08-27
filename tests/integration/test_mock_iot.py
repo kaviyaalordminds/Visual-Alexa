@@ -92,9 +92,7 @@ async def test_acceptance_grant_then_control_then_revoke_then_blocked(client):
     assert resp.json()["status"] == "FAILURE"
     assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
 
-    await client.post(
-        f"/devices/{device_id}/permissions/grant", json={"capability_key": "power"}
-    )
+    await client.post(f"/devices/{device_id}/permissions/grant", json={"capability_key": "power"})
 
     # Granted -> allowed, and the mock device actually reflects it.
     resp = await _invoke_set_power(client, device_id, True)
@@ -102,9 +100,7 @@ async def test_acceptance_grant_then_control_then_revoke_then_blocked(client):
     assert resp.json()["status"] == "SUCCESS"
     assert get_mock_ac_state(device_id)["power"] is True
 
-    await client.post(
-        f"/devices/{device_id}/permissions/revoke", json={"capability_key": "power"}
-    )
+    await client.post(f"/devices/{device_id}/permissions/revoke", json={"capability_key": "power"})
 
     # Revoked -> blocked again.
     resp = await _invoke_set_power(client, device_id, False)

@@ -84,6 +84,9 @@ export type EventType =
 // Delivered as an architecture-only stub in Phase 1 under the name
 // `AvatarState`; renamed to `AgentState` and completed in Phase 6 to
 // match the Python contract this always mirrored.
+// Phase 8 (docs/phase-8/BROWSER-ARCHITECTURE.md §139) adds BROWSING/
+// SEARCHING/READING/BLOCKED additively — like SPEAKING, these have no
+// TaskState equivalent and are set directly by BrowserWorkflowEngine.
 export type AgentState =
   | "IDLE"
   | "LISTENING"
@@ -97,7 +100,11 @@ export type AgentState =
   | "SPEAKING"
   | "SUCCESS"
   | "ERROR"
-  | "PAUSED";
+  | "PAUSED"
+  | "BROWSING"
+  | "SEARCHING"
+  | "READING"
+  | "BLOCKED";
 
 // docs/phase-6/LIP-SYNC.md — a small, closed set of mouth-shape buckets a
 // deterministic text-driven approximation classifies into (there is no
@@ -161,3 +168,7 @@ export type DevicePairingStage =
   | "AUTHORIZE"
   | "REGISTER_CAPABILITIES"
   | "CONTROL";
+
+// docs/phase-8/BROWSER-SECURITY.md §92 — a new domain always starts
+// UNKNOWN, never automatically TRUSTED.
+export type DomainTrustStatus = "TRUSTED" | "UNKNOWN" | "BLOCKED";

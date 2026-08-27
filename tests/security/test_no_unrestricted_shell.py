@@ -30,9 +30,7 @@ _FORBIDDEN_ANYWHERE = (
 # test_subprocess_argv_safety.py. Any other subprocess usage is forbidden
 # by this test, same as before Phase 2.
 _SUBPROCESS_ALLOWLIST = {
-    os.path.join(
-        "services", "computer-control", "computer_control", "windows", "applications.py"
-    ),
+    os.path.join("services", "computer-control", "computer_control", "windows", "applications.py"),
     os.path.join("services", "computer-control", "computer_control", "launcher.py"),
 }
 

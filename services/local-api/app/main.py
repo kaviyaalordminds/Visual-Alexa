@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import browser as browser_api
 from app.api import (
     conversations,
     devices,
@@ -33,6 +34,8 @@ from app.db.session import SessionLocal
 from app.services.agent.register import init_orchestrator
 from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
+from app.services.browser.manager import browser_manager
+from app.services.browser.register import register_browser_tools
 from app.services.computer_control import register_computer_control_tools
 from app.services.computer_control.backends import build_backend_bundle
 from app.services.credential_manager import credential_manager
@@ -59,12 +62,16 @@ async def lifespan(app: FastAPI):
     integration_registry.register_definition(build_reference_integration_bundle(credential_manager))
     for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
         tool_registry.register(mock_definition, mock_executor)
+    register_browser_tools(tool_registry)
     async with SessionLocal() as session:
         await integration_registry.reconnect_all_on_startup(session, tool_registry)
         await device_pairing_service.rebuild_permission_cache_on_startup(session)
     init_orchestrator(tool_registry, settings)
     init_voice_manager()
     yield
+    # Phase 8 — a launched Chromium process must never outlive this
+    # process; nothing else ever closes it if the app shuts down mid-task.
+    await browser_manager.close_all()
 
 
 def create_app() -> FastAPI:
@@ -97,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(plugins.router)
     app.include_router(events.router)
     app.include_router(voice.router)
+    app.include_router(browser_api.router)
 
     return app
 

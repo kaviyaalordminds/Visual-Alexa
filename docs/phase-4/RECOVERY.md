@@ -42,6 +42,22 @@ deterministic templates in Phase 4 rarely need a real replan (an
 `REPLAN`, before this gap is ever reached in practice). See
 `PHASE-4-TEST-RESULTS.md` known limitations.
 
+## 3b. Phase 8 update — browser errors, classified not duplicated
+
+Brief §86 ("Use Phase 4 RecoveryManager"): Phase 8's new `ErrorCategory`
+members are classified into this exact `RecoveryManager`'s existing
+category sets, never a second recovery engine for browser tools.
+`PAGE_CHANGED` joins `_REOBSERVE_CATEGORIES` (the DOM changed under an
+in-flight action — re-observe before retrying, same fix as
+`STATE_MISMATCH`). `NAVIGATION_FAILED`/`DOWNLOAD_FAILED` join
+`veyra_contracts.errors.RETRYABLE_CATEGORIES` (often a transient network
+blip, like `WINDOW_NOT_FOUND`). `CAPTCHA_DETECTED`/`OTP_REQUIRED`/
+`PAYMENT_CONFIRMATION_REQUIRED`/`UNSAFE_URL`/`PROMPT_INJECTION_BLOCKED`/
+`DOWNLOAD_BLOCKED`/`EXTENSION_AUTH_FAILED` all join `_PERMANENT_CATEGORIES`
+(`ABORT`, never retried) — every one of these needs a human decision, and
+retrying with the same inputs can never fix any of them. See
+`docs/phase-8/BROWSER-SECURITY.md`.
+
 ## 4. Verified
 
 `tests/unit/test_agent_recovery.py` (9 tests) — every category/budget

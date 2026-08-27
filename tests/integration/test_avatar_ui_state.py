@@ -27,9 +27,7 @@ async def _drain(queue):
 
 
 def _ui_states(events):
-    return [
-        e.payload["agent_state"] for e in events if e.type == EventType.VOICE_UI_STATE_CHANGED
-    ]
+    return [e.payload["agent_state"] for e in events if e.type == EventType.VOICE_UI_STATE_CHANGED]
 
 
 async def test_ui_state_sequence_for_a_completed_task(db_session, fs_sandbox):
@@ -66,8 +64,7 @@ async def test_speaking_state_carries_a_real_viseme_timeline(db_session, fs_sand
         speaking = [
             e
             for e in events
-            if e.type == EventType.VOICE_UI_STATE_CHANGED
-            and e.payload["agent_state"] == "SPEAKING"
+            if e.type == EventType.VOICE_UI_STATE_CHANGED and e.payload["agent_state"] == "SPEAKING"
         ]
         assert len(speaking) == 1
         visemes = speaking[0].payload["visemes"]
@@ -90,8 +87,7 @@ async def test_speaking_outcome_reflects_capability_unavailable_as_error(db_sess
         speaking = [
             e
             for e in events
-            if e.type == EventType.VOICE_UI_STATE_CHANGED
-            and e.payload["agent_state"] == "SPEAKING"
+            if e.type == EventType.VOICE_UI_STATE_CHANGED and e.payload["agent_state"] == "SPEAKING"
         ]
         assert len(speaking) == 1
         assert speaking[0].payload["outcome"] == "ERROR"
@@ -155,8 +151,7 @@ async def test_resume_after_pause_reports_paused_then_success_outcome(db_session
         speaking = [
             e
             for e in events
-            if e.type == EventType.VOICE_UI_STATE_CHANGED
-            and e.payload["agent_state"] == "SPEAKING"
+            if e.type == EventType.VOICE_UI_STATE_CHANGED and e.payload["agent_state"] == "SPEAKING"
         ]
         assert len(speaking) == 1
         assert speaking[0].payload["outcome"] == "SUCCESS"

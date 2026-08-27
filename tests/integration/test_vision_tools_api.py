@@ -72,15 +72,18 @@ async def test_target_ground_ambiguous_via_seeded_ui_tree(client, fake_computer_
             control_type="Window",
             children=[
                 UIElementNode(
-                    name="Download", control_type="Button",
+                    name="Download",
+                    control_type="Button",
                     bounds=Rect(left=0, top=0, width=80, height=20),
                 ),
                 UIElementNode(
-                    name="Download PDF", control_type="Button",
+                    name="Download PDF",
+                    control_type="Button",
                     bounds=Rect(left=100, top=0, width=80, height=20),
                 ),
                 UIElementNode(
-                    name="Download Image", control_type="Button",
+                    name="Download Image",
+                    control_type="Button",
                     bounds=Rect(left=200, top=0, width=80, height=20),
                 ),
             ],
@@ -108,7 +111,8 @@ async def test_target_ground_single_match_is_grounded(client, fake_computer_cont
             control_type="Window",
             children=[
                 UIElementNode(
-                    name="Save", control_type="Button",
+                    name="Save",
+                    control_type="Button",
                     bounds=Rect(left=0, top=0, width=80, height=20),
                 ),
             ],

@@ -40,6 +40,4 @@ def test_speaking_has_no_task_state_equivalent():
     """AgentState.SPEAKING is set directly by the voice layer (VEYRA can
     be speaking a response about an already-terminal task) — no
     TaskState maps to it."""
-    assert AgentState.SPEAKING not in {
-        compute_agent_state_from_task(state) for state in TaskState
-    }
+    assert AgentState.SPEAKING not in {compute_agent_state_from_task(state) for state in TaskState}

@@ -17,7 +17,14 @@ from veyra_contracts.errors import RETRYABLE_CATEGORIES
 # the more precise recovery than a blind identical retry.
 _REGROUND_CATEGORIES = frozenset({ErrorCategory.UI_NOT_FOUND, ErrorCategory.AMBIGUOUS_TARGET})
 _REOBSERVE_CATEGORIES = frozenset(
-    {ErrorCategory.VERIFICATION_FAILED, ErrorCategory.STATE_MISMATCH}
+    {
+        ErrorCategory.VERIFICATION_FAILED,
+        ErrorCategory.STATE_MISMATCH,
+        # Phase 8 (docs/phase-8/ERROR-RECOVERY.md §86) — the DOM changed
+        # under an in-flight action; re-observing before retrying is the
+        # same fix as a STATE_MISMATCH, never a blind identical retry.
+        ErrorCategory.PAGE_CHANGED,
+    }
 )
 # Permanent — no amount of retrying changes the outcome; escalate straight
 # to the user or abort, never spend the retry budget on these.
@@ -39,6 +46,20 @@ _PERMANENT_CATEGORIES = frozenset(
         # action (reconnect), not spending the retry budget.
         ErrorCategory.AUTH_ERROR,
         ErrorCategory.NOT_CONNECTED,
+        # Phase 8 (docs/phase-8/CAPTCHA-HANDLING.md, docs/phase-8/
+        # PROMPT-INJECTION-DEFENSE.md) — every one of these needs a human
+        # decision (complete the CAPTCHA/OTP themselves, confirm a
+        # purchase, decide about a blocked download/URL/injection
+        # attempt), never an automatic retry. Fails the task with a clear
+        # reason rather than spending the recovery budget on something
+        # retrying can never fix.
+        ErrorCategory.CAPTCHA_DETECTED,
+        ErrorCategory.OTP_REQUIRED,
+        ErrorCategory.PAYMENT_CONFIRMATION_REQUIRED,
+        ErrorCategory.UNSAFE_URL,
+        ErrorCategory.PROMPT_INJECTION_BLOCKED,
+        ErrorCategory.DOWNLOAD_BLOCKED,
+        ErrorCategory.EXTENSION_AUTH_FAILED,
     }
 )
 

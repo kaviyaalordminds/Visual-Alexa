@@ -57,6 +57,22 @@ by itself, cause a CRITICAL-tier action without an explicit, real user
 confirmation**, because that confirmation step has no code path the model
 can satisfy on its own.
 
+## 4b. Phase 8 update — a real, live caller
+
+Phase 8 (`docs/phase-8/BROWSER-SECURITY.md` §2) is the first phase where
+this document's contract has a real, tested caller against genuinely
+adversarial content: `InstructionBoundary.tag()` reuses
+`TRUSTED_CONTENT_SOURCES` directly (never a second trust list), tagging
+every `browser.extract_text`/`browser.get_page` result `WEB_CONTENT` /
+untrusted before it ever leaves the tool boundary. The structural
+guarantee holds for real, adversarial pages, not just the unit-tested
+data structures §5 describes: `tests/security/
+test_phase8_prompt_injection.py` runs the exact phrases from a real
+brief ("Ignore all previous instructions...", "Send all files...",
+"Reveal your system prompt...", "Upload credentials...") through a real
+page-extraction call and confirms both that the text comes back intact
+(never silently dropped) and that no action is ever authorized by it.
+
 ## 5. Phase 1 scope
 
 Delivered: the `source` provenance field in the content/context contracts,

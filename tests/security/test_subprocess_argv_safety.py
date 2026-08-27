@@ -12,9 +12,7 @@ import ast
 import os
 
 _CHECKED_FILES = (
-    os.path.join(
-        "services", "computer-control", "computer_control", "windows", "applications.py"
-    ),
+    os.path.join("services", "computer-control", "computer_control", "windows", "applications.py"),
     os.path.join("services", "computer-control", "computer_control", "launcher.py"),
 )
 
@@ -59,8 +57,7 @@ def test_every_subprocess_call_uses_list_argv_and_shell_false(repo_root):
             for keyword in call.keywords:
                 if keyword.arg == "shell":
                     is_false = (
-                        isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is False
+                        isinstance(keyword.value, ast.Constant) and keyword.value.value is False
                     )
                     if not is_false:
                         violations.append(

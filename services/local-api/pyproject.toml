@@ -25,6 +25,10 @@ dependencies = [
     # ("never invent custom cryptography... use established platform
     # mechanisms"). `cryptography`'s Fernet is exactly that mechanism.
     "cryptography>=42,<44",
+    # Phase 8 (docs/phase-8/BROWSER-ADAPTER.md) — brief §167: "prefer
+    # Playwright for controlled browser automation and testing." Real
+    # Chromium control, not a second hand-rolled CDP client.
+    "playwright>=1.45,<2",
 ]
 
 [project.optional-dependencies]

@@ -1,3 +1,4 @@
+export * from "./browser";
 export * from "./enums";
 export * from "./events";
 export * from "./platform";

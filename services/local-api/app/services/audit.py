@@ -14,10 +14,52 @@ from app.models.audit import AuditLog
 # Fields the summarizer must never include verbatim (docs/security/06 §5).
 _SENSITIVE_KEYS = frozenset({"password", "secret", "token", "otp", "credential"})
 
+# docs/phase-8/BROWSER-SECURITY.md §129 — 'Audit: "Typed password" NOT:
+# actual password.' A generic-shaped tool call (e.g. `browser.type`'s
+# `{"query": "Password", "text": "<the actual value>"}`) never puts the
+# secret under a recognizably-named key like "password" — the *target
+# field's own label* is what's sensitive, and the value sits under an
+# unrelated generic key ("text"). Real value here: `app/services/browser/
+# tools.py`'s `_SENSITIVE_FIELD_LABELS` reuses this exact set rather than
+# duplicating it, so the two checks (refuse to auto-fill vs. never log)
+# can never silently drift apart.
+SENSITIVE_FIELD_HINTS: frozenset[str] = frozenset(
+    {
+        "password",
+        "passcode",
+        "pin",
+        "ssn",
+        "social security",
+        "card number",
+        "cvv",
+        "cvc",
+        "otp",
+        "one-time code",
+        "security answer",
+        "bank account",
+        "routing number",
+    }
+)
+# Generic free-text argument keys that, on their own, name nothing
+# sensitive — but which redact too when another key in the same payload
+# names a sensitive target (see `summarize_payload` below).
+_FREEFORM_VALUE_KEYS = frozenset({"text", "value"})
+
 
 def summarize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    sensitive_context = any(
+        key.lower() not in _FREEFORM_VALUE_KEYS
+        and isinstance(value, str)
+        and any(hint in value.lower() for hint in SENSITIVE_FIELD_HINTS)
+        for key, value in payload.items()
+    )
     return {
-        key: ("[REDACTED]" if key.lower() in _SENSITIVE_KEYS else value)
+        key: (
+            "[REDACTED]"
+            if key.lower() in _SENSITIVE_KEYS
+            or (sensitive_context and key.lower() in _FREEFORM_VALUE_KEYS)
+            else value
+        )
         for key, value in payload.items()
     }
 

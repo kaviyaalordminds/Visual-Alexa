@@ -24,8 +24,13 @@ from veyra_contracts import (
 )
 
 _ACTIVE = {
-    "RECEIVED", "UNDERSTANDING", "PLANNING",
-    "EXECUTING", "OBSERVING", "VERIFYING", "RECOVERING",
+    "RECEIVED",
+    "UNDERSTANDING",
+    "PLANNING",
+    "EXECUTING",
+    "OBSERVING",
+    "VERIFYING",
+    "RECOVERING",
 }
 _DEFAULT_BUDGET = {"max_steps": 10, "timeout_seconds": 30, "max_recovery_attempts": 2}
 

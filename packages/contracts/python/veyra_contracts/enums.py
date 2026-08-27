@@ -189,6 +189,24 @@ class ErrorCategory(StrEnum):
     NOT_CONNECTED = "NOT_CONNECTED"
     RATE_LIMITED = "RATE_LIMITED"
 
+    # --- Phase 8: browser & web intelligence engine ---
+    # docs/phase-8/BROWSER-ARCHITECTURE.md §86. Most of brief §86's browser
+    # error taxonomy already existed under an existing name
+    # (ELEMENT_NOT_FOUND -> UI_NOT_FOUND, ELEMENT_NOT_INTERACTABLE ->
+    # UI_ELEMENT_DISABLED, TIMEOUT/NETWORK_ERROR unchanged, LOGIN_REQUIRED
+    # -> AUTHENTICATION_REQUIRED, PERMISSION_REQUIRED -> PERMISSION_DENIED);
+    # these did not.
+    NAVIGATION_FAILED = "NAVIGATION_FAILED"
+    CAPTCHA_DETECTED = "CAPTCHA_DETECTED"
+    OTP_REQUIRED = "OTP_REQUIRED"
+    DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
+    DOWNLOAD_BLOCKED = "DOWNLOAD_BLOCKED"
+    PAGE_CHANGED = "PAGE_CHANGED"
+    UNSAFE_URL = "UNSAFE_URL"
+    PROMPT_INJECTION_BLOCKED = "PROMPT_INJECTION_BLOCKED"
+    PAYMENT_CONFIRMATION_REQUIRED = "PAYMENT_CONFIRMATION_REQUIRED"
+    EXTENSION_AUTH_FAILED = "EXTENSION_AUTH_FAILED"
+
 
 class EventType(StrEnum):
     """docs/architecture/12-EVENTS.md §2. Phase 4
@@ -285,6 +303,20 @@ class AgentState(StrEnum):
     SUCCESS = "SUCCESS"
     ERROR = "ERROR"
     PAUSED = "PAUSED"
+
+    # --- Phase 8: browser & web intelligence engine ---
+    # docs/phase-8/BROWSER-ARCHITECTURE.md §139. Like SPEAKING (Phase 6),
+    # these have no TaskState equivalent and are set directly by
+    # BrowserWorkflowEngine over the same shared `voice.ui_state.changed`
+    # channel Phase 6 established as the one avatar-state broadcast
+    # (never voice-exclusive despite the wire event name — see that
+    # module's own docstring). ACTING/WAITING/CONFIRMING/COMPLETED/ERROR
+    # from brief §139 already exist above (EXECUTING/WAITING/CONFIRMING/
+    # SUCCESS/ERROR); only these four are new.
+    BROWSING = "BROWSING"
+    SEARCHING = "SEARCHING"
+    READING = "READING"
+    BLOCKED = "BLOCKED"
 
 
 class TaskPriority(StrEnum):
@@ -438,3 +470,14 @@ class Confidence(StrEnum):
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
     LOW = "LOW"
+
+
+class DomainTrustStatus(StrEnum):
+    """docs/phase-8/BROWSER-SECURITY.md §92 — 'maintain optional domain
+    trust information... do not automatically trust new domains.' A new
+    domain a browser session encounters defaults to UNKNOWN, never
+    TRUSTED."""
+
+    TRUSTED = "TRUSTED"
+    UNKNOWN = "UNKNOWN"
+    BLOCKED = "BLOCKED"

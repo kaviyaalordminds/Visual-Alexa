@@ -107,6 +107,37 @@ const VISUALS: Record<AgentState, AgentVisual> = {
     browTiltDeg: 0,
     label: "Paused",
   },
+  // docs/phase-8/BROWSER-ARCHITECTURE.md §139/§164 — additive, like
+  // SPEAKING before them: set directly by BrowserWorkflowEngine over the
+  // same voice.ui_state.changed channel, no TaskState equivalent.
+  BROWSING: {
+    auraColor: "#6fb0f0",
+    pulseSpeedMs: 900,
+    eyeState: "open",
+    browTiltDeg: 1,
+    label: "Browsing",
+  },
+  SEARCHING: {
+    auraColor: "#6f8ff0",
+    pulseSpeedMs: 1100,
+    eyeState: "soft",
+    browTiltDeg: 2,
+    label: "Searching",
+  },
+  READING: {
+    auraColor: "#8f7ff0",
+    pulseSpeedMs: 1400,
+    eyeState: "soft",
+    browTiltDeg: 0,
+    label: "Reading",
+  },
+  BLOCKED: {
+    auraColor: "#f0c56f",
+    pulseSpeedMs: 1200,
+    eyeState: "concerned",
+    browTiltDeg: -5,
+    label: "Blocked — needs you",
+  },
 };
 
 export function agentVisual(state: AgentState): AgentVisual {

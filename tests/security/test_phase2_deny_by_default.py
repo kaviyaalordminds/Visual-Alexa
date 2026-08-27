@@ -61,9 +61,7 @@ async def test_computer_control_disabled_by_default_blocks_every_phase2_tool(cli
         ("window.list", {}),
         ("screen.capture", {}),
     ]:
-        invoke_resp = await client.post(
-            f"/tools/{tool_id}/invoke", json={"arguments": args}
-        )
+        invoke_resp = await client.post(f"/tools/{tool_id}/invoke", json={"arguments": args})
         body = invoke_resp.json()
         assert body["status"] == "FAILURE", f"{tool_id} should be blocked"
         assert body["error"]["code"] == "PERMISSION_DENIED"

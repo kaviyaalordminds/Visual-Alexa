@@ -72,9 +72,7 @@ async def test_moderate_allowed_with_valid_grant(db_session):
 @pytest.mark.asyncio
 async def test_expired_grant_does_not_satisfy_check(db_session):
     user = await get_or_create_local_user(db_session)
-    await _grant(
-        db_session, user.id, expires_at=datetime.now(UTC) - timedelta(seconds=1)
-    )
+    await _grant(db_session, user.id, expires_at=datetime.now(UTC) - timedelta(seconds=1))
     decision = await policy_engine.evaluate(
         db_session,
         user_id=user.id,

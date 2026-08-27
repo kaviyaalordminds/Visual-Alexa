@@ -32,6 +32,10 @@ os.environ["VEYRA_CREDENTIALS_STORE_PATH"] = _TMP_CREDENTIALS_PATH
 _TMP_FS_ROOT = tempfile.mkdtemp(prefix="veyra-fs-tests-")
 os.environ["VEYRA_FILESYSTEM_ALLOWED_ROOTS"] = json.dumps([_TMP_FS_ROOT])
 
+# Phase 8 — an isolated downloads dir, never a developer's real one.
+_TMP_BROWSER_DOWNLOADS_DIR = tempfile.mkdtemp(prefix="veyra-browser-downloads-")
+os.environ["VEYRA_BROWSER_DOWNLOADS_DIR"] = _TMP_BROWSER_DOWNLOADS_DIR
+
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.seed_defaults import DEFAULT_SETTINGS
@@ -42,6 +46,10 @@ from app.models.setting import SystemSetting
 from app.services.agent.register import init_orchestrator
 from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
+from app.services.browser.manager import browser_manager
+from app.services.browser.observation import observation_service
+from app.services.browser.register import register_browser_tools
+from app.services.browser.testing import FakeBrowserAdapter
 from app.services.computer_control import register_computer_control_tools
 from app.services.computer_control.backends import build_backend_bundle
 from app.services.credential_manager import credential_manager
@@ -97,6 +105,18 @@ async def _reset_state(request):
     reset_mock_ac_state()
     for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
         tool_registry.register(mock_definition, mock_executor)
+
+    # Phase 8 — a real Chromium launch from a previous test must never
+    # leak into this one; the fast default test double is
+    # `FakeBrowserAdapter`, matching the existing bundle/fakes precedent
+    # for computer_control/vision. Individual real-Playwright tests
+    # override `browser_manager.set_adapter_factory(...)` themselves
+    # (see tests/integration/test_browser_real_playwright.py) — this
+    # fixture always resets it back to the fake for every other test.
+    await browser_manager.close_all()
+    browser_manager.set_adapter_factory(FakeBrowserAdapter)
+    observation_service.cache.clear()
+    register_browser_tools(tool_registry)
 
     # Real seeded defaults everywhere (docs/security/05-DATA-PROTECTION.md
     # §3 — off by default) EXCEPT computer_control.enabled, which almost

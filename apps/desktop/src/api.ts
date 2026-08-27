@@ -1,4 +1,5 @@
 import type {
+  BrowserSessionInfo,
   DeviceOut,
   HealthResponse,
   IntegrationOut,
@@ -126,4 +127,13 @@ export function revokeDevicePermission(id: string, capabilityKey: string): Promi
 // docs/phase-7/PLUGIN-ARCHITECTURE.md
 export function listPlugins(): Promise<PluginOut[]> {
   return getJSON<PluginOut[]>("/plugins");
+}
+
+// docs/phase-8/BROWSER-SESSION.md
+export function listBrowserSessions(): Promise<BrowserSessionInfo[]> {
+  return getJSON<BrowserSessionInfo[]>("/browser/sessions");
+}
+
+export function closeBrowserSession(sessionId: string): Promise<ToolResult> {
+  return invokeTool("browser.close", {}, sessionId);
 }

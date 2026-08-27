@@ -55,23 +55,35 @@ def test_plan_change_to_different_target_requires_reconfirmation():
     """docs/phase-4 §23 — approved 'project.pdf', system found
     'project_final_confidential.pdf' instead: must ask again."""
     original = PlanStep(
-        sequence=1, description="send", tool_id="filesystem.open",
-        arguments={"path": "/a/project.pdf"}, risk_level=RiskLevel.SENSITIVE,
+        sequence=1,
+        description="send",
+        tool_id="filesystem.open",
+        arguments={"path": "/a/project.pdf"},
+        risk_level=RiskLevel.SENSITIVE,
     )
     changed = PlanStep(
-        sequence=1, description="send", tool_id="filesystem.open",
-        arguments={"path": "/a/project_final_confidential.pdf"}, risk_level=RiskLevel.SENSITIVE,
+        sequence=1,
+        description="send",
+        tool_id="filesystem.open",
+        arguments={"path": "/a/project_final_confidential.pdf"},
+        risk_level=RiskLevel.SENSITIVE,
     )
     assert ConfirmationManager().plan_changed_materially(original, changed) is True
 
 
 def test_plan_unchanged_does_not_require_reconfirmation():
     original = PlanStep(
-        sequence=1, description="send", tool_id="filesystem.open",
-        arguments={"path": "/a/project.pdf"}, risk_level=RiskLevel.SENSITIVE,
+        sequence=1,
+        description="send",
+        tool_id="filesystem.open",
+        arguments={"path": "/a/project.pdf"},
+        risk_level=RiskLevel.SENSITIVE,
     )
     same = PlanStep(
-        sequence=1, description="send", tool_id="filesystem.open",
-        arguments={"path": "/a/project.pdf"}, risk_level=RiskLevel.SENSITIVE,
+        sequence=1,
+        description="send",
+        tool_id="filesystem.open",
+        arguments={"path": "/a/project.pdf"},
+        risk_level=RiskLevel.SENSITIVE,
     )
     assert ConfirmationManager().plan_changed_materially(original, same) is False
