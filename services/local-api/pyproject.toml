@@ -18,6 +18,13 @@ dependencies = [
     "alembic>=1.13,<2",
     "pydantic-settings>=2.3,<3",
     "aiosqlite>=0.20,<1",
+    # Phase 7 (docs/security/05-DATA-PROTECTION.md §1's already-documented
+    # non-Windows credential-encryption fallback) — the stdlib has no
+    # high-level authenticated encryption primitive; hashlib/hmac alone
+    # would mean hand-rolling crypto, which CLAUDE.md explicitly forbids
+    # ("never invent custom cryptography... use established platform
+    # mechanisms"). `cryptography`'s Fernet is exactly that mechanism.
+    "cryptography>=42,<44",
 ]
 
 [project.optional-dependencies]

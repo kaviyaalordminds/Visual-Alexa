@@ -6,6 +6,7 @@ import { getSystemStatus } from "./api";
 import { Avatar } from "./avatar/Avatar";
 import { useAvatarSocket } from "./avatar/useAvatarSocket";
 import DevConsole from "./DevConsole";
+import PlatformPanel from "./platform/PlatformPanel";
 
 // Phase 1 shipped only a technical status shell (product brief §40: "This
 // is NOT the final UI"). Phase 6 (docs/phase-6/AVATAR-ARCHITECTURE.md)
@@ -86,6 +87,8 @@ export default function App() {
           );
         })}
       </dl>
+
+      <PlatformPanel />
 
       <DevConsole />
     </main>

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
-from veyra_contracts import ConnectionProtocol, DeviceTrustStatus, DeviceType
+from veyra_contracts import ConnectionProtocol, DevicePairingStage, DeviceTrustStatus, DeviceType
 
 from app.db.base import Base, IDMixin, TimestampMixin
 
@@ -13,7 +13,11 @@ class Device(Base, IDMixin, TimestampMixin):
     """docs/architecture/10-IOT.md, docs/security/04-DEVICE-TRUST.md —
     deny-by-default: trust_status starts UNPAIRED and must pass the full
     pair -> identify -> authenticate -> authorize flow before any
-    DevicePermission can be granted."""
+    DevicePermission can be granted. Phase 7's `pairing_stage`
+    (docs/phase-7/DEVICE-PAIRING.md) is the finer-grained, strictly-
+    ordered progress marker `DevicePairingService` enforces — distinct
+    from `trust_status`, which only reflects the coarse, externally-
+    meaningful state."""
 
     __tablename__ = "devices"
 
@@ -28,6 +32,10 @@ class Device(Base, IDMixin, TimestampMixin):
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     credentials_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Phase 7 addition ---
+    pairing_stage: Mapped[DevicePairingStage | None] = mapped_column(
+        Enum(DevicePairingStage), nullable=True
+    )
 
 
 class DeviceCapability(Base, IDMixin, TimestampMixin):

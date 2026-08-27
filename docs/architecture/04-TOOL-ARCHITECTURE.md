@@ -125,3 +125,24 @@ Phase 3 scope.
   for every tool, including `SAFE`-tier ones (SAFE tools still get a
   permission check against a default-granted SAFE-tier policy — they are
   not exempt from the code path, only from requiring user confirmation).
+
+## 7. Phase 7 update
+
+`ToolRegistry` (`app/services/tool_registry.py`) gains `unregister`/
+`disable`/`enable`/`is_enabled` additively — brief §25's own function
+list (register/unregister/discover/search/get/list/enable/disable),
+which the registry only partially had before. A disabled tool stays
+listed/discoverable but `execute_tool_call` refuses to run it
+(`ErrorCategory.TOOL_DISABLED`) *before* the Policy Engine step, not
+after — a stronger, earlier gate than a denied permission.
+`ToolDefinition` gains `keywords`/`integration_id` additively
+(`docs/phase-7/TOOL-DISCOVERY.md`, `INTEGRATION-ARCHITECTURE.md`) —
+`integration_id` is how §5's `browser`/`communication`/`media`/`iot`
+categories start getting populated: an `IntegrationRegistry.connect()`
+registers its tools into this same registry, tagged with which
+integration owns them, and `disconnect()`/plugin `disable()` both call
+the new `unregister` to remove them again. `veyra_contracts.
+discovery.search_tools` is the real, tested answer to brief §26-27's
+"don't hand the model every tool definition" — see
+`docs/phase-7/TOOL-DISCOVERY.md` for why there is no LLM-driven planner
+yet to hand anything to.

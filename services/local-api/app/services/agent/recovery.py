@@ -34,6 +34,11 @@ _PERMANENT_CATEGORIES = frozenset(
         ErrorCategory.PATH_PROTECTED,
         ErrorCategory.VALIDATION_ERROR,
         ErrorCategory.INVALID_PLAN,
+        # Phase 7 — retrying with the same invalid/missing credential or
+        # disconnected integration never succeeds; the fix is a user
+        # action (reconnect), not spending the retry budget.
+        ErrorCategory.AUTH_ERROR,
+        ErrorCategory.NOT_CONNECTED,
     }
 )
 

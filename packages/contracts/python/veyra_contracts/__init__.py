@@ -28,20 +28,25 @@ from veyra_contracts.devices import (
     DeviceCapability,
     DevicePermission,
 )
+from veyra_contracts.discovery import search_tools
 from veyra_contracts.enums import (
     TRUSTED_CONTENT_SOURCES,
     AgentState,
+    AuthMethod,
     Confidence,
     ConfirmationPolicy,
     ConnectionProtocol,
     ContentSource,
+    DevicePairingStage,
     DeviceTrustStatus,
     DeviceType,
     ErrorCategory,
     EventType,
     EvidenceTier,
+    IntegrationState,
     MemoryCategory,
     PermissionDecision,
+    PluginState,
     RecoveryStrategy,
     RiskLevel,
     TaskPriority,
@@ -51,8 +56,10 @@ from veyra_contracts.enums import (
 )
 from veyra_contracts.errors import ErrorInfo
 from veyra_contracts.events import Event
+from veyra_contracts.integrations import ConnectionResult, IntegrationDefinition, IntegrationResult
 from veyra_contracts.memory import MemoryRecord
 from veyra_contracts.permissions import PermissionGrant, PermissionRequest
+from veyra_contracts.plugins import PluginManifest
 from veyra_contracts.tasks import (
     TaskBudget,
     illegal_task_transition,
@@ -65,14 +72,17 @@ __all__ = [
     "AgentState",
     "AmbiguityCandidate",
     "AmbiguityResolution",
+    "AuthMethod",
     "Command",
     "Confidence",
     "ConfirmationPolicy",
     "Connection",
     "ConnectionProtocol",
+    "ConnectionResult",
     "ContentSource",
     "Device",
     "DeviceCapability",
+    "DevicePairingStage",
     "DevicePermission",
     "DeviceTrustStatus",
     "DeviceType",
@@ -82,6 +92,9 @@ __all__ = [
     "EventType",
     "EvidenceTier",
     "ExecutionPlan",
+    "IntegrationDefinition",
+    "IntegrationResult",
+    "IntegrationState",
     "IntentStatus",
     "MemoryCategory",
     "MemoryRecord",
@@ -89,6 +102,8 @@ __all__ = [
     "PermissionGrant",
     "PermissionRequest",
     "PlanStep",
+    "PluginManifest",
+    "PluginState",
     "RecoveryDecision",
     "RecoveryStrategy",
     "RiskLevel",
@@ -105,4 +120,5 @@ __all__ = [
     "illegal_task_transition",
     "is_legal_transition",
     "resolve_ambiguity",
+    "search_tools",
 ]

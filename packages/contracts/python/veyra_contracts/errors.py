@@ -22,6 +22,12 @@ RETRYABLE_CATEGORIES: frozenset[ErrorCategory] = frozenset(
         ErrorCategory.WINDOW_NOT_FOUND,
         ErrorCategory.UI_NOT_FOUND,
         ErrorCategory.UNKNOWN_WINDOWS_ERROR,
+        # Phase 7 (docs/phase-7/PHASE-7-IMPLEMENTATION-PLAN.md) — a rate
+        # limit is transient by nature (brief §33: "RATE_LIMITED... may
+        # retry"). AUTH_ERROR/NOT_CONNECTED are deliberately NOT here:
+        # retrying with the same invalid/missing credential never
+        # succeeds — that needs a user action (reconnect), not a retry.
+        ErrorCategory.RATE_LIMITED,
     }
 )
 

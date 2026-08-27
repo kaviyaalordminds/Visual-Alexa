@@ -11,6 +11,7 @@ from app.models.conversation import Conversation, Message
 from app.models.device import Device, DeviceCapability, DevicePermission
 from app.models.integration import Integration
 from app.models.memory import Memory, Workflow
+from app.models.plugin import Plugin, PluginPermission
 from app.models.setting import SystemSetting
 from app.models.task import Task, TaskStep
 from app.models.tool import Permission, PermissionGrant, Tool
@@ -30,6 +31,8 @@ __all__ = [
     "Message",
     "Permission",
     "PermissionGrant",
+    "Plugin",
+    "PluginPermission",
     "SystemSetting",
     "Task",
     "TaskStep",

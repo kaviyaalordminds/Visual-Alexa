@@ -62,3 +62,17 @@ Delivered: schema-level `credentials_ref` pattern, conservative default
 production path. Not delivered: a working DPAPI integration (requires a
 Windows build target, see `docs/architecture/02-DESKTOP-ARCHITECTURE.md`
 Known Phase 1 limitation) or SQLCipher-based at-rest encryption.
+
+## 6. Phase 7 update
+
+The "non-Windows dev/CI environments... local encrypted-at-rest fallback"
+promised in §1 is now real: `app/services/credential_manager.py`'s
+`FileCredentialStore` encrypts every stored secret with `cryptography`'s
+`Fernet`, keyed via PBKDF2-HMAC from `Settings.secret_key` (unused since
+Phase 1, exactly the field this was already reserved for). Verified: the
+plaintext secret never appears in the on-disk file, a wrong `secret_key`
+cannot decrypt it, and — end to end through the real HTTP API — a
+connected integration's credential never appears in an audit log row or
+an API response (`tests/security/test_phase7_platform_security.py`).
+`WindowsDPAPICredentialStore` remains a documented, unimplemented
+extension point — still no Windows host in this environment.

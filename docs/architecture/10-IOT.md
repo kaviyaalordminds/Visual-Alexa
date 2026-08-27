@@ -62,3 +62,20 @@ Delivered: full data model, adapter interface, and the deny-by-default
 policy wired into the Policy Engine's default rule set. Not delivered: any
 protocol adapter implementation or real device — explicitly out of Phase 1
 scope per the brief §39.
+
+## 6. Phase 7 update — the flow is real, the device is still mock
+
+`docs/phase-7/DEVICE-PAIRING.md` delivers a real, tested
+`DevicePairingService` that enforces §1's six-stage flow procedurally
+(a new `Device.pairing_stage` column makes "no stage skippable" an
+enforced invariant, not just a comment) against a `MockACDevice` — no
+real protocol adapter or discovery/network-scanning code exists yet, per
+the brief's own Stop Condition. One deviation from §4 worth recording
+honestly: the two mock control tools (`iot.mock_ac.set_power`/
+`.set_temperature`) are registered as `RiskLevel.SAFE`, not `SENSITIVE`
+— deliberately, so the generic Policy Engine step always passes through
+immediately and the *device-specific* `DevicePermission` gate (checked
+inside the executor via `DevicePairingService.is_permission_valid`) is
+the layer actually under test, in isolation from the separate, already
+well-tested `PermissionGrant` system. A real smart-home integration in a
+future phase should likely use `SENSITIVE` and both layers together.

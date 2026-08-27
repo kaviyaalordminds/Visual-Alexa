@@ -18,6 +18,10 @@ export interface ToolDefinition {
   timeout_seconds: number;
   cancellable: boolean;
   verification_strategy: string;
+  // Phase 7 (docs/phase-7/TOOL-DISCOVERY.md, INTEGRATION-ARCHITECTURE.md)
+  // — both additive.
+  keywords: string[];
+  integration_id: string | null;
 }
 
 export interface VerificationOutcome {

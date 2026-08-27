@@ -32,6 +32,9 @@ class ToolCategory(StrEnum):
     DOCUMENTS = "documents"
     SYSTEM = "system"
     IOT = "iot"
+    # Phase 7 — for a plugin- or integration-registered tool that doesn't
+    # fit any category above (docs/phase-7/PLUGIN-ARCHITECTURE.md §9).
+    CUSTOM = "custom"
 
 
 class ConfirmationPolicy(StrEnum):
@@ -175,6 +178,16 @@ class ErrorCategory(StrEnum):
     CLOUD_PROVIDER_ERROR = "CLOUD_PROVIDER_ERROR"
     VOICE_CANCELLED = "VOICE_CANCELLED"
     SESSION_TIMEOUT = "SESSION_TIMEOUT"
+
+    # --- Phase 7: universal tool/integration/plugin platform ---
+    # docs/phase-7/PHASE-7-IMPLEMENTATION-PLAN.md §1 — most of brief §32's
+    # failure taxonomy already existed under an existing name (PERMISSION_
+    # DENIED, CAPABILITY_UNAVAILABLE, NETWORK_ERROR, TIMEOUT, VALIDATION_
+    # ERROR, OPERATION_CANCELLED, PLATFORM_NOT_SUPPORTED); these three did
+    # not.
+    AUTH_ERROR = "AUTH_ERROR"
+    NOT_CONNECTED = "NOT_CONNECTED"
+    RATE_LIMITED = "RATE_LIMITED"
 
 
 class EventType(StrEnum):
@@ -324,6 +337,63 @@ class ConnectionProtocol(StrEnum):
     LOCAL_HTTP = "LOCAL_HTTP"
     BLUETOOTH = "BLUETOOTH"
     VENDOR_API = "VENDOR_API"
+
+
+class DevicePairingStage(StrEnum):
+    """docs/phase-7/IOT-ARCHITECTURE.md — CLAUDE.md's six-stage device
+    authorization flow ('PAIR -> IDENTIFY -> AUTHENTICATE -> AUTHORIZE ->
+    REGISTER CAPABILITIES -> CONTROL, in order, with no stage
+    skippable'), enforced procedurally by `DevicePairingService` against
+    a `Device.pairing_stage` column. Deliberately finer-grained than
+    `DeviceTrustStatus` (which only reflects the externally-meaningful
+    coarse state) — this is the internal invariant a caller cannot skip
+    past, not a second status a UI would show directly."""
+
+    PAIR = "PAIR"
+    IDENTIFY = "IDENTIFY"
+    AUTHENTICATE = "AUTHENTICATE"
+    AUTHORIZE = "AUTHORIZE"
+    REGISTER_CAPABILITIES = "REGISTER_CAPABILITIES"
+    CONTROL = "CONTROL"
+
+
+class AuthMethod(StrEnum):
+    """docs/phase-7/INTEGRATION-ARCHITECTURE.md — mirrors
+    docs/architecture/11-INTEGRATIONS.md §2's documented `Integration`
+    interface (`auth_method: AuthMethod`), now a real enum instead of an
+    unconstrained string on the `Integration.auth_method` column."""
+
+    OAUTH2 = "OAUTH2"
+    API_KEY = "API_KEY"
+    NONE = "NONE"
+
+
+class IntegrationState(StrEnum):
+    """docs/phase-7/INTEGRATION-ARCHITECTURE.md §23."""
+
+    AVAILABLE = "AVAILABLE"
+    INSTALL_REQUIRED = "INSTALL_REQUIRED"
+    CONNECT_REQUIRED = "CONNECT_REQUIRED"
+    AUTHORIZING = "AUTHORIZING"
+    CONNECTED = "CONNECTED"
+    DISCONNECTED = "DISCONNECTED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+    ERROR = "ERROR"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class PluginState(StrEnum):
+    """docs/phase-7/PLUGIN-ARCHITECTURE.md §63 — never treat every
+    installed plugin as trusted; a plugin only reaches ENABLED (its tools
+    live in the real ToolRegistry) through an explicit user action."""
+
+    UNTRUSTED = "UNTRUSTED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    TRUSTED = "TRUSTED"
+    ENABLED = "ENABLED"
+    DISABLED = "DISABLED"
+    REVOKED = "REVOKED"
 
 
 class ContentSource(StrEnum):

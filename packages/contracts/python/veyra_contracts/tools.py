@@ -48,6 +48,22 @@ class ToolDefinition(BaseModel):
         "confirms this tool's expected postcondition.",
     )
     audit_metadata: dict[str, Any] = Field(default_factory=dict)
+    # Phase 7 (docs/phase-7/TOOL-DISCOVERY.md) additions — both additive,
+    # backward-compatible with all 50 tools registered before this phase.
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="Free-text search terms for dynamic tool discovery "
+        "(veyra_contracts.discovery.search_tools) — never used for "
+        "anything security-relevant, only catalog search.",
+    )
+    integration_id: str | None = Field(
+        default=None,
+        description="The Integration (if any) that registered this tool. "
+        "None means a core, always-available system tool — see "
+        "docs/architecture/11-INTEGRATIONS.md §2: 'every Integration "
+        "capability that performs an action is registered in the Tool "
+        "Registry like any other tool.'",
+    )
 
 
 class ToolCallRequest(BaseModel):

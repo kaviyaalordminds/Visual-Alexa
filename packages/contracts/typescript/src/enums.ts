@@ -11,12 +11,14 @@ export type ToolCategory =
   | "screen"
   | "keyboard"
   | "mouse"
+  | "vision"
   | "browser"
   | "communication"
   | "media"
   | "documents"
   | "system"
-  | "iot";
+  | "iot"
+  | "custom";
 
 export type TaskState =
   | "RECEIVED"
@@ -113,3 +115,49 @@ export type VisemeShape =
   | "U"
   | "WQ"
   | "ETC";
+
+// docs/phase-7/INTEGRATION-ARCHITECTURE.md, PLUGIN-ARCHITECTURE.md,
+// DEVICE-PAIRING.md.
+export type AuthMethod = "OAUTH2" | "API_KEY" | "NONE";
+
+export type IntegrationState =
+  | "AVAILABLE"
+  | "INSTALL_REQUIRED"
+  | "CONNECT_REQUIRED"
+  | "AUTHORIZING"
+  | "CONNECTED"
+  | "DISCONNECTED"
+  | "EXPIRED"
+  | "REVOKED"
+  | "ERROR"
+  | "UNAVAILABLE";
+
+export type PluginState =
+  | "UNTRUSTED"
+  | "REVIEW_REQUIRED"
+  | "TRUSTED"
+  | "ENABLED"
+  | "DISABLED"
+  | "REVOKED";
+
+export type DeviceType =
+  | "AC"
+  | "FAN"
+  | "TV"
+  | "REFRIGERATOR"
+  | "LIGHT"
+  | "SMART_PLUG"
+  | "SPEAKER"
+  | "OTHER";
+
+export type DeviceTrustStatus = "UNPAIRED" | "PAIRING" | "PAIRED" | "REVOKED";
+
+export type ConnectionProtocol = "MATTER" | "MQTT" | "LOCAL_HTTP" | "BLUETOOTH" | "VENDOR_API";
+
+export type DevicePairingStage =
+  | "PAIR"
+  | "IDENTIFY"
+  | "AUTHENTICATE"
+  | "AUTHORIZE"
+  | "REGISTER_CAPABILITIES"
+  | "CONTROL";

@@ -57,3 +57,14 @@ Delivered: full data model + the deny-by-default enforcement path in the
 Policy Engine (verified by unit tests asserting a `Command` is rejected
 without a completed trust flow). Not delivered: any real pairing protocol
 implementation.
+
+## 6. Phase 7 update
+
+`app/services/device_pairing.py`'s `DevicePairingService` is the real
+enforcement referenced above — `tests/unit/test_device_pairing.py` and
+`tests/integration/test_mock_iot.py` cover exactly the "rejected without
+a completed trust flow" scenario end to end (`docs/phase-7/
+DEVICE-PAIRING.md`). One gap this phase left open, recorded honestly: §3's
+"un-pairing a device cascades to revoke all its `DevicePermission` rows"
+was not implemented — only `revoke_permission` (one capability at a
+time) exists; a full "un-pair" operation is future work.

@@ -44,6 +44,46 @@ async def execute_tool_call(
     if definition is None:
         raise UnknownToolError(f"Tool '{call.tool_id}' is not registered.")
 
+    if not registry.is_enabled(call.tool_id):
+        # docs/phase-7/TOOL-REGISTRY.md — a disabled tool never even
+        # reaches the Policy Engine; this is a stronger, earlier gate
+        # than a denied permission (the tool isn't available at all
+        # right now, regardless of who's asking).
+        result = ToolResult(
+            call_id=call.call_id,
+            status=ToolResultStatus.FAILURE,
+            error=ErrorInfo.build(
+                code=ErrorCategory.TOOL_DISABLED,
+                message=f"Tool '{call.tool_id}' is currently disabled.",
+                correlation_id=call.correlation_id,
+            ),
+            duration_ms=0,
+        )
+        await write_audit_log(
+            session,
+            correlation_id=call.correlation_id,
+            user_id=user_id,
+            tool_id=call.tool_id,
+            action=call.tool_id,
+            target=call.target,
+            risk_level=definition.risk_level,
+            permission_grant_id=None,
+            request_payload_summary=call.arguments,
+            result_status=ToolResultStatus.FAILURE,
+            error_code=ErrorCategory.TOOL_DISABLED.value,
+            evidence_tier_used=None,
+            duration_ms=0,
+        )
+        await event_bus.publish_type(
+            EventType.ASSISTANT_ERROR, call.correlation_id, {"reason": "tool disabled"}
+        )
+        return ExecutionOutcome(
+            result=result,
+            policy_decision=PolicyDecision(
+                allowed=False, requires_confirmation=False, reason="Tool disabled."
+            ),
+        )
+
     decision = await policy_engine.evaluate(
         session,
         user_id=user_id,

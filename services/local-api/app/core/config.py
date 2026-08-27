@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # DPAPI instead; this key must never be committed with a real value.
     secret_key: str = "dev-only-insecure-secret-change-me"
 
+    # Phase 7 (docs/phase-7/CREDENTIAL-MANAGEMENT.md) — where
+    # FileCredentialStore persists its encrypted blobs. Never plaintext;
+    # see app/services/credential_manager.py.
+    credentials_store_path: str = "./credentials.enc.json"
+
     log_level: str = "INFO"
 
     cors_origins: list[str] = ["tauri://localhost", "http://localhost:1420"]

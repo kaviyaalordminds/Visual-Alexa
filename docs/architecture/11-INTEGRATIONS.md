@@ -45,3 +45,18 @@ Policy Engine.
 
 Delivered: the `Integration` interface and directory structure. Not
 delivered: any live integration — explicitly out of Phase 1 scope.
+
+## 5. Phase 7 update
+
+`app/services/integration_registry.py`'s `IntegrationRegistry` is the
+real implementation of this interface's connect/disconnect/health-check
+lifecycle (`docs/phase-7/INTEGRATION-ARCHITECTURE.md`), backed by a real
+`CredentialManager` (never a raw secret in the `integrations` table —
+`docs/phase-7/CREDENTIAL-MANAGEMENT.md`) and this document's own §2
+invariant holds exactly as designed: every tool an integration exposes
+registers into the same `ToolRegistry`/Policy Engine chain as any other
+tool. One reference integration ships (`reference.echo`) — deliberately
+not a real product, per the brief's Stop Condition (no Gmail/WhatsApp/
+Spotify implementation yet). `integrations/{browser,email,iot,media,
+whatsapp}/` remain empty READMEs — still nothing to adapt to a real
+provider's API.

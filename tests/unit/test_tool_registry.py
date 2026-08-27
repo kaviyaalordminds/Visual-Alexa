@@ -51,6 +51,49 @@ def test_list_filters_by_category():
     assert {d.id for d in registry.list()} == {"a", "b"}
 
 
+def test_unregister_removes_definition_and_executor():
+    registry = ToolRegistry()
+    registry.register(_definition(), _NoopExecutor())
+    registry.unregister("test.tool")
+    assert registry.get("test.tool") is None
+    assert registry.get_executor("test.tool") is None
+
+
+def test_unregister_unknown_tool_is_a_harmless_noop():
+    registry = ToolRegistry()
+    registry.unregister("does.not.exist")  # must not raise
+
+
+def test_new_tools_are_enabled_by_default():
+    registry = ToolRegistry()
+    registry.register(_definition(), _NoopExecutor())
+    assert registry.is_enabled("test.tool") is True
+
+
+def test_disable_then_enable_round_trips():
+    registry = ToolRegistry()
+    registry.register(_definition(), _NoopExecutor())
+    registry.disable("test.tool")
+    assert registry.is_enabled("test.tool") is False
+    registry.enable("test.tool")
+    assert registry.is_enabled("test.tool") is True
+
+
+def test_disabling_an_unregistered_tool_is_a_harmless_noop():
+    registry = ToolRegistry()
+    registry.disable("does.not.exist")
+    assert registry.is_enabled("does.not.exist") is True
+
+
+def test_unregister_clears_any_disabled_flag():
+    registry = ToolRegistry()
+    registry.register(_definition(), _NoopExecutor())
+    registry.disable("test.tool")
+    registry.unregister("test.tool")
+    registry.register(_definition(), _NoopExecutor())
+    assert registry.is_enabled("test.tool") is True
+
+
 def test_missing_risk_level_rejected_at_the_model_layer():
     # ToolDefinition.risk_level is a required field, so an attempt to
     # construct one without it fails before registration is even possible —

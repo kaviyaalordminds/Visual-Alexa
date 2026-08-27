@@ -17,7 +17,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import ToolCallRequest, ToolCategory, ToolDefinition, ToolResult
+from veyra_contracts import ToolCallRequest, ToolCategory, ToolDefinition, ToolResult, search_tools
 
 from app.api.deps import get_or_create_local_user
 from app.db.session import get_session
@@ -33,8 +33,14 @@ class InvokeRequest(BaseModel):
 
 
 @router.get("", response_model=list[ToolDefinition])
-async def list_tools(category: ToolCategory | None = None) -> list[ToolDefinition]:
-    return tool_registry.list(category=category)
+async def list_tools(
+    category: ToolCategory | None = None, query: str | None = None
+) -> list[ToolDefinition]:
+    """docs/phase-7/TOOL-DISCOVERY.md — `query` narrows by keyword/id/
+    name/description over the real registry; a future LLM planner (or
+    this endpoint's existing caller, DevConsole) never needs every
+    registered tool's full definition just to find one."""
+    return search_tools(tool_registry.list(category=category), query=query)
 
 
 @router.get("/{tool_id}", response_model=ToolDefinition)

@@ -19,6 +19,7 @@ from app.api import (
     health,
     integrations,
     memory,
+    plugins,
     system,
     tasks,
     tools,
@@ -34,6 +35,11 @@ from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
 from app.services.computer_control import register_computer_control_tools
 from app.services.computer_control.backends import build_backend_bundle
+from app.services.credential_manager import credential_manager
+from app.services.device_pairing import device_pairing_service
+from app.services.integration_registry import integration_registry
+from app.services.mock_iot import build_mock_iot_tools
+from app.services.reference_integration import build_reference_integration_bundle
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
 from app.services.voice.register import init_voice_manager
@@ -50,6 +56,12 @@ async def lifespan(app: FastAPI):
     bundle = build_backend_bundle()
     register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
     register_vision_tools(tool_registry, bundle)
+    integration_registry.register_definition(build_reference_integration_bundle(credential_manager))
+    for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
+        tool_registry.register(mock_definition, mock_executor)
+    async with SessionLocal() as session:
+        await integration_registry.reconnect_all_on_startup(session, tool_registry)
+        await device_pairing_service.rebuild_permission_cache_on_startup(session)
     init_orchestrator(tool_registry, settings)
     init_voice_manager()
     yield
@@ -82,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(tasks.router)
     app.include_router(integrations.router)
+    app.include_router(plugins.router)
     app.include_router(events.router)
     app.include_router(voice.router)
 

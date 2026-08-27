@@ -30,6 +30,9 @@ class Tool(Base, IDMixin, TimestampMixin):
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=30)
     cancellable: Mapped[bool] = mapped_column(default=True)
     verification_strategy: Mapped[str] = mapped_column(String(500), default="none")
+    # --- Phase 7 additions (mirrors ToolDefinition's own additions) ---
+    keywords: Mapped[list] = mapped_column(JSON, default=list)
+    integration_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
 class Permission(Base, IDMixin, TimestampMixin):
