@@ -249,7 +249,15 @@ class RecoveryStrategy(StrEnum):
 class AgentState(StrEnum):
     """docs/phase-4/AGENT-ARCHITECTURE.md §7 — semantic states for a
     future avatar/UI to consume; computed from TaskState, never stored as
-    a second, independently-mutable field (docs/phase-4/TASK-MEMORY.md)."""
+    a second, independently-mutable field (docs/phase-4/TASK-MEMORY.md).
+    Phase 4 shipped only this enum and a mapping *convention* in prose —
+    `veyra_contracts.avatar.compute_agent_state_from_task` is the real,
+    tested function Phase 6 (docs/phase-6/AVATAR-ARCHITECTURE.md) added as
+    its first actual caller. Phase 6 also adds `SPEAKING` and `PAUSED`
+    additively: `SPEAKING` has no `TaskState` equivalent (VEYRA can be
+    speaking a response while the underlying task is already terminal),
+    so it's driven directly by the voice layer instead of the mapping
+    table; `PAUSED` mirrors `TaskState.PAUSED` (Phase 5) 1:1."""
 
     IDLE = "IDLE"
     LISTENING = "LISTENING"
@@ -260,8 +268,10 @@ class AgentState(StrEnum):
     WAITING = "WAITING"
     CONFIRMING = "CONFIRMING"
     RECOVERING = "RECOVERING"
+    SPEAKING = "SPEAKING"
     SUCCESS = "SUCCESS"
     ERROR = "ERROR"
+    PAUSED = "PAUSED"
 
 
 class TaskPriority(StrEnum):

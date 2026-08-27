@@ -10,19 +10,20 @@ architectural review — see `docs/roadmap/DEFINITION-OF-DONE.md`.
 **VEYRA** is a local-first Visual AI Computer Operating Layer, not a voice
 assistant clone, not a chatbot, not a thin wrapper around a computer-use
 model. Full product context: `docs/research/VEYRA_DIFFERENTIATION.md`.
-Current phase: **Phase 5 — advanced voice intelligence engine (hearing +
-speaking)**, built on the Phase 1 foundation
-(`docs/roadmap/PHASE-1-SCOPE.md`), Phase 2's computer-control engine
+Current phase: **Phase 6 — visual female AI identity / avatar engine**,
+built on the Phase 1 foundation (`docs/roadmap/PHASE-1-SCOPE.md`), Phase
+2's computer-control engine
 (`docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md`), Phase 3's visual
-perception engine (`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md`), and
-Phase 4's AI brain / task execution engine
-(`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md`). See
-`docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md` for what Phase 5 added and
-`docs/phase-5/PHASE-5-TEST-RESULTS.md` for what is and isn't verified in
-this environment. Do not build Phase 6+ capability (the final female
-avatar, lip synchronization, facial animation, IoT, WhatsApp, the full
-browser agent, long-term personal memory, autonomous background behavior)
-without explicit instruction to begin the next phase.
+perception engine (`docs/phase-3/PHASE-3-IMPLEMENTATION-PLAN.md`), Phase
+4's AI brain / task execution engine
+(`docs/phase-4/PHASE-4-IMPLEMENTATION-PLAN.md`), and Phase 5's voice
+intelligence engine (`docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md`). See
+`docs/phase-6/PHASE-6-IMPLEMENTATION-PLAN.md` for what Phase 6 added and
+`docs/phase-6/PHASE-6-TEST-RESULTS.md` for what is and isn't verified in
+this environment. Do not build Phase 7+ capability (a universal tool/
+integration/plugin platform, IoT, WhatsApp, the full browser agent,
+long-term personal memory, autonomous background behavior) without
+explicit instruction to begin the next phase.
 
 ## Product vision
 

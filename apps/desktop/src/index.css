@@ -147,3 +147,100 @@ h1 {
   max-height: 260px;
   overflow-y: auto;
 }
+
+/* docs/phase-6/AVATAR-ARCHITECTURE.md — VEYRA's original visual identity.
+   All motion here is either a fixed, always-on idle cue (breathing aura,
+   blink) or driven directly by --aura-color/--pulse-speed, which the
+   Avatar component sets from the real AgentState it received over
+   /events — never a decorative animation invented independently of the
+   actual state. */
+.avatar {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto 2rem;
+}
+
+.avatar-aura {
+  position: absolute;
+  inset: -18px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--aura-color) 0%, transparent 70%);
+  opacity: 0.55;
+  filter: blur(6px);
+  animation: avatar-pulse var(--pulse-speed) ease-in-out infinite;
+}
+
+@keyframes avatar-pulse {
+  0%, 100% {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.65;
+  }
+}
+
+.avatar-face {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.avatar-hair {
+  fill: url(#avatar-hair-gradient);
+}
+
+.avatar-face-shape {
+  fill: #f4f1fb;
+}
+
+.avatar-eye {
+  fill: #372d52;
+  transition: ry 160ms ease;
+}
+
+.avatar-eye-resting,
+.avatar-eye-open {
+  animation: avatar-blink 6.5s ease-in-out infinite;
+}
+
+@keyframes avatar-blink {
+  0%, 92%, 100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.05);
+  }
+}
+
+.avatar-eye-happy {
+  fill: none;
+  stroke: #372d52;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+}
+
+.avatar-brow {
+  fill: #372d52;
+  transition: transform 220ms ease;
+}
+
+.avatar-mouth {
+  fill: #b5476b;
+  transition:
+    rx 90ms linear,
+    ry 90ms linear;
+}
+
+.avatar-mouth-curve {
+  fill: none;
+  stroke: #b5476b;
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.avatar[data-connected="false"] {
+  opacity: 0.5;
+}

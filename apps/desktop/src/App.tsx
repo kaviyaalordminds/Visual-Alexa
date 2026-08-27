@@ -3,10 +3,14 @@ import { useEffect, useState } from "react";
 import type { ComponentStatus, SystemStatus } from "@veyra/contracts";
 
 import { getSystemStatus } from "./api";
+import { Avatar } from "./avatar/Avatar";
+import { useAvatarSocket } from "./avatar/useAvatarSocket";
 import DevConsole from "./DevConsole";
 
-// Phase 1 technical shell only — product brief §40: "This is NOT the final
-// UI. Do not spend excessive time on visual design."
+// Phase 1 shipped only a technical status shell (product brief §40: "This
+// is NOT the final UI"). Phase 6 (docs/phase-6/AVATAR-ARCHITECTURE.md)
+// adds VEYRA's actual visual identity above it; the status list and dev
+// console remain for diagnostics rather than being removed.
 const POLL_INTERVAL_MS = 5000;
 
 const ROWS: Array<{ key: keyof SystemStatus; label: string }> = [
@@ -30,6 +34,7 @@ function statusClassName(status: ComponentStatus): string {
 export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const avatarState = useAvatarSocket();
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +66,8 @@ export default function App() {
     <main className="shell">
       <h1>VEYRA</h1>
       <p className="tagline">Local-first Visual AI Computer Operating Layer</p>
+
+      <Avatar runtime={avatarState} />
 
       {error && (
         <p className="status-error" role="alert">

@@ -20,6 +20,7 @@ from veyra_contracts.ambiguity import (
     AmbiguityResolution,
     resolve_ambiguity,
 )
+from veyra_contracts.avatar import compute_agent_state_from_task
 from veyra_contracts.devices import (
     Command,
     Connection,
@@ -100,6 +101,7 @@ __all__ = [
     "ToolDefinition",
     "ToolResult",
     "ToolResultStatus",
+    "compute_agent_state_from_task",
     "illegal_task_transition",
     "is_legal_transition",
     "resolve_ambiguity",

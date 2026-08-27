@@ -91,3 +91,21 @@ class STTMode(StrEnum):
     LOCAL = "LOCAL"
     CLOUD = "CLOUD"
     AUTO = "AUTO"
+
+
+class VisemeShape(StrEnum):
+    """docs/phase-6/LIP-SYNC.md — a small, closed set of mouth-shape
+    buckets `voice.core.visemes.text_to_visemes` classifies characters
+    into. A generic, simplified grouping by mouth shape, not any single
+    vendor's or product's proprietary viseme set."""
+
+    REST = "REST"
+    AI = "AI"
+    E = "E"
+    FV = "FV"
+    L = "L"
+    MBP = "MBP"
+    OH = "OH"
+    U = "U"
+    WQ = "WQ"
+    ETC = "ETC"

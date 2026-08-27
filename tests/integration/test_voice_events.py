@@ -1,9 +1,11 @@
 """voice.* events actually publish through the real event_bus.
 docs/phase-5/VOICE-EVENTS.md. Only events genuinely triggerable from a
 text-only voice turn (no real audio hardware in this environment) are
-covered here — `voice.wake_detected`, `voice.transcript.partial`, and
-`voice.ui_state.changed` have no real trigger yet and are not expected.
-"""
+covered here — `voice.wake_detected` and `voice.transcript.partial` still
+have no real trigger (no real wake-word detector or streaming STT) and
+are not expected. `voice.ui_state.changed` *is* now real as of Phase 6
+(docs/phase-6/AVATAR-ARCHITECTURE.md) — see test_avatar_ui_state.py for
+its own dedicated coverage of the payload shape."""
 
 from __future__ import annotations
 
@@ -42,9 +44,9 @@ async def test_full_turn_publishes_the_expected_event_sequence(db_session, fs_sa
         assert EventType.VOICE_RESPONSE_FINISHED in types
         # No real wake-word/streaming-STT/avatar in this phase — these
         # must never be fabricated (docs/phase-5/VOICE-EVENTS.md §2).
+        assert EventType.VOICE_UI_STATE_CHANGED in types
         assert EventType.VOICE_WAKE_DETECTED not in types
         assert EventType.VOICE_TRANSCRIPT_PARTIAL not in types
-        assert EventType.VOICE_UI_STATE_CHANGED not in types
     finally:
         await event_bus.unsubscribe(queue)
 

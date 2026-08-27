@@ -22,6 +22,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from veyra_contracts import (
+    AgentState,
     AmbiguityCandidate,
     ErrorCategory,
     ErrorInfo,
@@ -29,6 +30,7 @@ from veyra_contracts import (
     PermissionDecision,
     TaskBudget,
     TaskState,
+    compute_agent_state_from_task,
 )
 from voice.core.confirmation import parse_confirmation
 from voice.core.enums import ActivationSource, ConfirmationDecision, InterruptionType, VoiceState
@@ -49,6 +51,7 @@ from voice.core.response import (
     never_mind_text,
 )
 from voice.core.state_machine import VoiceStateMachine
+from voice.core.visemes import text_to_visemes
 
 from app.api.deps import get_or_create_local_user
 from app.core.event_bus import event_bus
@@ -170,6 +173,7 @@ class VoiceConversationManager:
             EventType.VOICE_LISTENING_STARTED,
             {"activation_source": activation_source.value},
         )
+        await self._publish_ui_state(session, AgentState.LISTENING)
         return session
 
     async def end_session(self, db: AsyncSession, session_id: str) -> None:
@@ -196,6 +200,7 @@ class VoiceConversationManager:
             sm.transition(VoiceState.IDLE)
         await self._persist(db, session)
         await self._publish(session, EventType.VOICE_RESPONSE_FINISHED)
+        await self._publish_ui_state(session, AgentState.IDLE)
         return session
 
     async def submit_utterance(
@@ -229,6 +234,7 @@ class VoiceConversationManager:
 
         await self._publish(session, EventType.VOICE_LISTENING_STOPPED)
         sm.transition(VoiceState.TRANSCRIBING)
+        await self._publish_ui_state(session, AgentState.THINKING)
 
         detection = detect_language(raw_text)
         if detection.language != Language.UNKNOWN:
@@ -253,7 +259,13 @@ class VoiceConversationManager:
                 db, session, sm, pending_task, normalized.normalized_text, stt_confidence
             )
             await self._persist(db, session)
-            await self._log_turn(db, session, raw_text, response.text)
+            await self._log_turn(
+                db,
+                session,
+                raw_text,
+                response.text,
+                outcome=compute_agent_state_from_task(pending_task.state),
+            )
             return VoiceTurnResult(session=session, response=response)
 
         if pending_task is not None and pending_task.state == TaskState.PAUSED:
@@ -261,7 +273,13 @@ class VoiceConversationManager:
                 db, session, sm, pending_task, normalized.normalized_text, stt_confidence
             )
             await self._persist(db, session)
-            await self._log_turn(db, session, raw_text, response.text)
+            await self._log_turn(
+                db,
+                session,
+                raw_text,
+                response.text,
+                outcome=compute_agent_state_from_task(pending_task.state),
+            )
             return VoiceTurnResult(session=session, response=response)
 
         if session.pending_correction is not None:
@@ -346,7 +364,9 @@ class VoiceConversationManager:
         response = self._respond_to_task(session, task)
         sm.transition(VoiceState.RESPONDING)
         await self._persist(db, session)
-        await self._log_turn(db, session, raw_text, response.text)
+        await self._log_turn(
+            db, session, raw_text, response.text, outcome=compute_agent_state_from_task(task.state)
+        )
         return VoiceTurnResult(session=session, response=response)
 
     async def _handle_interruption(
@@ -369,6 +389,10 @@ class VoiceConversationManager:
         if kind == InterruptionType.STOP_SPEAKING:
             sm.transition(VoiceState.LISTENING)
             await self._persist(db, session)
+            # Silent turn (should_speak=False) — _log_turn's own SPEAKING
+            # publish never fires for it, so this is the only place the
+            # avatar learns VEYRA stopped talking and is listening again.
+            await self._publish_ui_state(session, AgentState.LISTENING)
             return VoiceTurnResult(
                 session=session,
                 response=VoiceResponse(text="", language=language, should_speak=False),
@@ -410,6 +434,9 @@ class VoiceConversationManager:
             # another caller) that this session later says "continue" to.
             sm.transition(VoiceState.LISTENING)
             await self._persist(db, session)
+            # Same reasoning as STOP_SPEAKING above — a silent turn, so
+            # this is the only place the avatar learns it's listening.
+            await self._publish_ui_state(session, AgentState.LISTENING)
             return VoiceTurnResult(
                 session=session,
                 response=VoiceResponse(text="", language=language, should_speak=False),
@@ -567,7 +594,13 @@ class VoiceConversationManager:
         return session
 
     async def _log_turn(
-        self, db: AsyncSession, session: VoiceSessionModel, raw_text: str, response_text: str
+        self,
+        db: AsyncSession,
+        session: VoiceSessionModel,
+        raw_text: str,
+        response_text: str,
+        *,
+        outcome: AgentState | None = None,
     ) -> None:
         """docs/phase-5 §50-57 — transcripts reuse the existing Message
         table (GET /conversations/{id}/messages is the real "get
@@ -576,7 +609,12 @@ class VoiceConversationManager:
         through regardless of which branch handled it, so this is where
         `voice.transcript.final`/`voice.response.started` are published —
         both event payloads reuse the same redacted text, never the raw
-        one (docs/phase-5/VOICE-EVENTS.md)."""
+        one (docs/phase-5/VOICE-EVENTS.md). Phase 6 additionally publishes
+        `voice.ui_state.changed` (SPEAKING) here from the *real*
+        `response_text`, since the viseme timeline it carries never
+        leaves this process — `outcome`, when the caller has a concrete
+        terminal/waiting `TaskState` to report, rides along on the same
+        event rather than firing a separate one."""
         redacted_raw = redact_secrets(raw_text)
         await self._publish(session, EventType.VOICE_TRANSCRIPT_FINAL, {"text": redacted_raw})
 
@@ -590,6 +628,9 @@ class VoiceConversationManager:
             redacted_response = redact_secrets(response_text)
             await self._publish(
                 session, EventType.VOICE_RESPONSE_STARTED, {"text": redacted_response}
+            )
+            await self._publish_ui_state(
+                session, AgentState.SPEAKING, response_text=response_text, outcome=outcome
             )
             if session.conversation_id is not None:
                 db.add(
@@ -614,6 +655,38 @@ class VoiceConversationManager:
         (no real wake-word detector or streaming STT, no avatar) and are
         deliberately not published here rather than faked."""
         await event_bus.publish_type(event_type, session.id, payload)
+
+    async def _publish_ui_state(
+        self,
+        session: VoiceSessionModel,
+        agent_state: AgentState,
+        *,
+        response_text: str | None = None,
+        outcome: AgentState | None = None,
+    ) -> None:
+        """docs/phase-6/AVATAR-ARCHITECTURE.md — the real trigger
+        `voice.ui_state.changed` never had before Phase 6 (it was declared
+        in `EventType` but always skipped, see `_publish`'s own docstring
+        history). Fires only at points this pipeline can genuinely reach:
+        LISTENING (mic conceptually open), THINKING (everything between
+        "stopped listening" and "have a result" — transcribing, language
+        detection, understanding, planning, execution, and recovery are
+        all opaque from this synchronous voice turn's own vantage point,
+        see the PAUSE_TASK limitation this class already documents),
+        SPEAKING (with a real, deterministic viseme timeline computed from
+        the *actual* response text — never the redacted one, since visemes
+        never leave this process; `outcome` optionally carries the real
+        terminal `AgentState` the underlying task reached, for a frontend
+        that wants to tint a "speaking" expression, e.g. concerned for an
+        error vs. pleased for success), and IDLE (turn fully finished).
+        `visemes` is only ever attached to a genuine `SPEAKING` state with
+        non-empty text — never fabricated for a silent turn."""
+        payload: dict = {"agent_state": agent_state.value}
+        if agent_state == AgentState.SPEAKING and response_text:
+            payload["visemes"] = [f.model_dump(mode="json") for f in text_to_visemes(response_text)]
+        if outcome is not None:
+            payload["outcome"] = outcome.value
+        await event_bus.publish_type(EventType.VOICE_UI_STATE_CHANGED, session.id, payload)
 
     async def _persist(
         self, db: AsyncSession, session: VoiceSessionModel, *, ended: bool = False

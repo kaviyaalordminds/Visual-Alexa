@@ -28,9 +28,11 @@ export type TaskState =
   | "VERIFYING"
   | "RECOVERING"
   | "WAITING_USER"
+  | "PAUSED"
   | "COMPLETED"
   | "FAILED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "TIMED_OUT";
 
 export type EventType =
   | "assistant.listening"
@@ -45,20 +47,69 @@ export type EventType =
   | "task.completed"
   | "device.connected"
   | "device.disconnected"
-  | "system.health_changed";
+  | "system.health_changed"
+  | "task.created"
+  | "task.planned"
+  | "task.step.started"
+  | "task.step.completed"
+  | "task.step.failed"
+  | "task.confirmation.required"
+  | "task.confirmation.received"
+  | "task.recovery.started"
+  | "task.recovery.completed"
+  | "task.paused"
+  | "task.resumed"
+  | "task.cancelled"
+  | "task.failed"
+  | "task.timed_out"
+  | "voice.wake_detected"
+  | "voice.listening_started"
+  | "voice.listening_stopped"
+  | "voice.transcript.partial"
+  | "voice.transcript.final"
+  | "voice.language.detected"
+  | "voice.intent.received"
+  | "voice.response.started"
+  | "voice.response.finished"
+  | "voice.interrupted"
+  | "voice.error"
+  | "voice.ui_state.changed";
 
-// docs/architecture/02-DESKTOP-ARCHITECTURE.md / product brief §16 — the
-// avatar state machine, driven 1:1 by TaskState + EventType via the event
-// bus. Not rendered in Phase 1 (no avatar assets), but the type exists so
-// the event-consumption contract is fixed before the avatar is built.
-export type AvatarState =
+// docs/phase-4/AGENT-ARCHITECTURE.md §5 / docs/phase-6/AVATAR-ARCHITECTURE.md
+// — semantic states for the avatar to render, computed server-side from
+// TaskState (veyra_contracts.avatar.compute_agent_state_from_task) or set
+// directly by the voice layer (SPEAKING has no TaskState equivalent).
+// Delivered as an architecture-only stub in Phase 1 under the name
+// `AvatarState`; renamed to `AgentState` and completed in Phase 6 to
+// match the Python contract this always mirrored.
+export type AgentState =
   | "IDLE"
   | "LISTENING"
+  | "UNDERSTANDING"
   | "THINKING"
   | "PLANNING"
   | "EXECUTING"
-  | "WAITING_CONFIRMATION"
+  | "WAITING"
+  | "CONFIRMING"
+  | "RECOVERING"
+  | "SPEAKING"
   | "SUCCESS"
-  | "WARNING"
   | "ERROR"
-  | "SPEAKING";
+  | "PAUSED";
+
+// docs/phase-6/LIP-SYNC.md — a small, closed set of mouth-shape buckets a
+// deterministic text-driven approximation classifies into (there is no
+// real TTS audio/phoneme timing in this environment, see PHASE-6-TEST-
+// RESULTS.md). Not any specific vendor's viseme set — a generic reduced
+// grouping by mouth shape.
+export type VisemeShape =
+  | "REST"
+  | "AI"
+  | "E"
+  | "FV"
+  | "L"
+  | "MBP"
+  | "OH"
+  | "U"
+  | "WQ"
+  | "ETC";

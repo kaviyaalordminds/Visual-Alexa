@@ -17,6 +17,7 @@ from voice.core.enums import (
     ConfirmationDecision,
     InterruptionType,
     Language,
+    VisemeShape,
     VoiceState,
 )
 
@@ -130,6 +131,16 @@ class VoiceSession(BaseModel):
     # Task; the *next* utterance answers that question rather than
     # starting a new command. See voice.core.mishear.
     pending_correction: str | None = None
+
+
+class VisemeFrame(BaseModel):
+    """docs/phase-6/LIP-SYNC.md — one mouth-shape hold in a
+    `text_to_visemes` timeline: `shape` from `start_ms` for `duration_ms`,
+    relative to the start of the spoken response."""
+
+    shape: VisemeShape
+    start_ms: int = Field(ge=0)
+    duration_ms: int = Field(gt=0)
 
 
 class MishearSuggestion(BaseModel):
