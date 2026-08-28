@@ -55,7 +55,11 @@ scripts/                       Dev tooling + scripts/build-backend-sidecar.py (W
 ### Prerequisites
 Python 3.11+, Node 20+, Rust/Cargo (for the desktop shell). On Linux, the
 desktop shell additionally needs GTK3 + WebKitGTK dev libraries (Windows
-uses WebView2, already present on modern Windows).
+uses WebView2, already present on modern Windows). `tesseract-ocr` must be
+on `PATH` for `services/vision`'s real OCR engine to report itself
+available (`apt-get install -y tesseract-ocr` on Debian/Ubuntu) — without
+it, Vision's OCR capability check and `tests/unit/test_ocr_engine.py` and
+friends correctly report/fail as unavailable rather than silently passing.
 
 ### Local API
 
