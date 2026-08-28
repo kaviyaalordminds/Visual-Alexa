@@ -37,7 +37,7 @@ h1 {
 .status-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 0.5rem 0.75rem;
   border: 1px solid #262b36;
   border-radius: 8px;
@@ -45,13 +45,27 @@ h1 {
 
 .status-row dt {
   color: #cfd4dc;
+  padding-top: 0.1rem;
 }
 
 .status-row dd {
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
   font-weight: 600;
   font-size: 0.85rem;
   letter-spacing: 0.03em;
+  text-align: right;
+  max-width: 60%;
+}
+
+.status-reason {
+  font-weight: 400;
+  font-size: 0.72rem;
+  letter-spacing: normal;
+  color: #9aa3b2;
 }
 
 .status-ok {

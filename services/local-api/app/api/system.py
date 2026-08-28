@@ -9,28 +9,47 @@ response degrades to reporting the failure instead of crashing (a 500 here
 told the caller nothing about *which* component was the problem; the
 brief is explicit that a status endpoint must never merely disappear when
 the thing it's reporting on is unhealthy).
+
+Subsystem activation (docs/subsystem-activation/SUBSYSTEM-ACTIVATION-
+REPORT.md): `ai`/`voice`/`vision`/`computer_control`/`iot` used to be
+static `system_settings` boolean-flag lookups with no relationship to
+whether the subsystem was actually usable. They are now each derived from
+a real check in `app/services/subsystem_health.py` — see that module's
+own docstring for exactly what each one verifies. `DEGRADED` and
+`DISABLED` are two new `ComponentStatus` values added here, additively
+(every previously-possible value and every existing test's exact string
+still holds) — this is not a change to the response *shape* the frontend
+already depends on, only a richer, real set of values a field can take,
+plus an additive `details` map carrying a human-readable reason per
+component.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
+from computer_control.core.capabilities import detect_capabilities
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.models.setting import SystemSetting
+from app.services.device_pairing import device_pairing_service
+from app.services.subsystem_health import (
+    ComponentStatus,
+    compute_ai_status,
+    compute_computer_control_status,
+    compute_iot_status,
+    compute_vision_status,
+    compute_voice_status,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["system"])
-
-ComponentStatus = Literal[
-    "CONNECTED", "NOT CONFIGURED", "NOT ENABLED", "NOT CONNECTED", "ACTIVE", "ERROR"
-]
 
 
 class SystemStatus(BaseModel):
@@ -43,6 +62,11 @@ class SystemStatus(BaseModel):
     computer_control: ComponentStatus
     iot: ComponentStatus
     security: ComponentStatus
+    # Human-readable reason per component (e.g. "database" -> "..."),
+    # populated for every field this module derives from a real check.
+    # Additive and optional — a frontend that doesn't know about this
+    # field simply ignores it.
+    details: dict[str, str] = Field(default_factory=dict)
 
 
 async def _database_is_live(session: AsyncSession) -> bool:
@@ -73,6 +97,17 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
             logger.exception("[VEYRA] /system: settings query failed")
             database_live = False
 
+    settings = get_settings()
+    ai_health = compute_ai_status(settings)
+    voice_health = compute_voice_status(settings)
+    vision_health = compute_vision_status(settings)
+    computer_control_health = compute_computer_control_status(
+        enabled_flag=bool(settings_by_key.get("computer_control.enabled")),
+        capabilities=detect_capabilities(),
+    )
+    iot_health = compute_iot_status(device_pairing_service)
+    security_active = bool(settings_by_key.get("security.active"))
+
     return SystemStatus(
         # The desktop shell that calls this endpoint is, by definition,
         # connected if this response is returned to it — same for the
@@ -81,14 +116,17 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
         desktop="CONNECTED",
         local_api="CONNECTED",
         database="CONNECTED" if database_live else "ERROR",
-        ai="CONNECTED" if settings_by_key.get("ai.configured") else "NOT CONFIGURED",
-        voice="CONNECTED" if settings_by_key.get("voice.configured") else "NOT CONFIGURED",
-        vision="CONNECTED" if settings_by_key.get("vision.configured") else "NOT CONFIGURED",
-        computer_control=(
-            "CONNECTED" if settings_by_key.get("computer_control.enabled") else "NOT ENABLED"
-        ),
-        iot=(
-            "CONNECTED" if settings_by_key.get("external_devices.enabled") else "NOT CONNECTED"
-        ),
-        security="ACTIVE" if settings_by_key.get("security.active") else "ERROR",
+        ai=ai_health.status,
+        voice=voice_health.status,
+        vision=vision_health.status,
+        computer_control=computer_control_health.status,
+        iot=iot_health.status,
+        security="ACTIVE" if security_active else "ERROR",
+        details={
+            "ai": ai_health.reason,
+            "voice": voice_health.reason,
+            "vision": vision_health.reason,
+            "computer_control": computer_control_health.reason,
+            "iot": iot_health.reason,
+        },
     )

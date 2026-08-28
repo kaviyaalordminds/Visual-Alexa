@@ -15,7 +15,9 @@ import PlatformPanel from "./platform/PlatformPanel";
 // console remain for diagnostics rather than being removed.
 const POLL_INTERVAL_MS = 5000;
 
-const ROWS: Array<{ key: keyof SystemStatus; label: string }> = [
+type StatusRowKey = Exclude<keyof SystemStatus, "details">;
+
+const ROWS: Array<{ key: StatusRowKey; label: string }> = [
   { key: "desktop", label: "Desktop" },
   { key: "local_api", label: "Local API" },
   { key: "database", label: "Database" },
@@ -80,10 +82,14 @@ export default function App() {
       <dl className="status-list">
         {ROWS.map(({ key, label }) => {
           const value = status ? status[key] : "NOT CONNECTED";
+          const reason = status?.details?.[key];
           return (
             <div className="status-row" key={key}>
               <dt>{label}</dt>
-              <dd className={statusClassName(value)}>{value}</dd>
+              <dd className={statusClassName(value)}>
+                {value}
+                {reason && <span className="status-reason">{reason}</span>}
+              </dd>
             </div>
           );
         })}

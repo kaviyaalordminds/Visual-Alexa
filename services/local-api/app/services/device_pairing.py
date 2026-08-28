@@ -238,6 +238,18 @@ class DevicePairingService:
         expires_at = self._permission_cache[(device_id, capability_key)]
         return expires_at is None or expires_at > _now()
 
+    def has_any_active_permission(self) -> bool:
+        """Subsystem activation (docs/subsystem-activation/IOT-STATUS.md):
+        the real check `/system`'s `iot` field is derived from — at least
+        one paired device has a currently-valid (non-revoked, non-expired)
+        permission grant. `NOT CONNECTED` is the correct, expected default
+        when this is `False`; it is never treated as an error."""
+        now = _now()
+        return any(
+            expires_at is None or expires_at > now
+            for expires_at in self._permission_cache.values()
+        )
+
     async def rebuild_permission_cache_on_startup(self, session: AsyncSession) -> None:
         """Mirrors IntegrationRegistry.reconnect_all_on_startup — a real
         DevicePermission granted before a restart must not silently stop

@@ -10,8 +10,10 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
+from computer_control.core.capabilities import detect_capabilities
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from app.api import browser as browser_api
 from app.api import (
@@ -33,6 +35,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.migrate import DatabaseInitializationError, ensure_database_ready
 from app.db.session import SessionLocal
+from app.models.setting import SystemSetting
 from app.services.agent.register import init_orchestrator
 from app.services.application_registry import load_application_registry
 from app.services.bootstrap import register_default_tools
@@ -45,6 +48,14 @@ from app.services.device_pairing import device_pairing_service
 from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools
 from app.services.reference_integration import build_reference_integration_bundle
+from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
+from app.services.subsystem_health import (
+    compute_ai_status,
+    compute_computer_control_status,
+    compute_iot_status,
+    compute_vision_status,
+    compute_voice_status,
+)
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
 from app.services.voice.register import init_voice_manager
@@ -75,6 +86,7 @@ async def lifespan(app: FastAPI):
         raise
 
     register_default_tools(tool_registry)
+    register_subsystem_diagnostic_tools(tool_registry)
     async with SessionLocal() as session:
         application_registry = await load_application_registry(session)
     logger.info(
@@ -98,6 +110,41 @@ async def lifespan(app: FastAPI):
         await device_pairing_service.rebuild_permission_cache_on_startup(session)
     init_orchestrator(tool_registry, settings)
     init_voice_manager()
+
+    # Subsystem activation (docs/subsystem-activation/SUBSYSTEM-ACTIVATION-
+    # REPORT.md): structured, per-subsystem startup logging using the same
+    # real checks GET /system reports — never a bare "started" claim.
+    async with SessionLocal() as session:
+        result = await session.execute(
+            select(SystemSetting).where(SystemSetting.key == "computer_control.enabled")
+        )
+        row = result.scalars().first()
+        computer_control_enabled = bool(row.value) if row is not None else False
+
+    logger.info("[AI] Initializing")
+    ai_health = compute_ai_status(settings)
+    logger.info("[AI] %s — %s", ai_health.status, ai_health.reason)
+
+    logger.info("[VOICE] Initializing")
+    voice_health = compute_voice_status(settings)
+    logger.info("[VOICE] %s — %s", voice_health.status, voice_health.reason)
+
+    logger.info("[VISION] Initializing")
+    vision_health = compute_vision_status(settings)
+    logger.info("[VISION] %s — %s", vision_health.status, vision_health.reason)
+
+    logger.info("[COMPUTER] Initializing")
+    computer_control_health = compute_computer_control_status(
+        enabled_flag=computer_control_enabled, capabilities=detect_capabilities()
+    )
+    logger.info(
+        "[COMPUTER] %s — %s", computer_control_health.status, computer_control_health.reason
+    )
+
+    logger.info("[DEVICE] Gateway initialized")
+    iot_health = compute_iot_status(device_pairing_service)
+    logger.info("[DEVICE] %s — %s", iot_health.status, iot_health.reason)
+
     logger.info("[VEYRA] Local API: READY")
     logger.info("[VEYRA] Listening: %s:%s", settings.host, settings.port)
     yield

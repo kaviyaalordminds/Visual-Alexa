@@ -57,6 +57,7 @@ from app.services.device_pairing import device_pairing_service
 from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools, reset_mock_ac_state
 from app.services.reference_integration import build_reference_integration_bundle
+from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
 from app.services.voice.register import init_voice_manager
@@ -146,6 +147,7 @@ async def _reset_state(request):
 
     settings = get_settings()
     register_default_tools(tool_registry)
+    register_subsystem_diagnostic_tools(tool_registry)
     bundle = build_backend_bundle()
     register_computer_control_tools(tool_registry, settings, application_registry, bundle=bundle)
     register_vision_tools(tool_registry, bundle)

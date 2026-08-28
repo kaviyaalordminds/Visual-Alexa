@@ -28,8 +28,15 @@ class LLMProvider(Protocol):
     """CLAUDE.md: 'No vendor-specific AI SDK may be imported outside its
     designated provider adapter module' — a future real provider
     (local/OpenAI-compatible/Anthropic-compatible/Gemini) implements this
-    exact Protocol in its own adapter module, never imported from here."""
+    exact Protocol in its own adapter module, never imported from here.
 
+    `health_check()` (subsystem activation, docs/subsystem-activation/
+    AI-STATUS.md) is a cheap, read-only reachability probe, distinct from
+    every other method here (each of which is a real, possibly-billable
+    inference call) — see app/services/agent/providers.py's own docstring
+    for why the two are kept separate."""
+
+    async def health_check(self) -> LLMResult: ...
     async def understand(self, request: str) -> LLMResult: ...
     async def plan(self, goal: str, context: dict) -> LLMResult: ...
     async def reason(self, prompt: str, context: dict) -> LLMResult: ...
@@ -39,6 +46,9 @@ class LLMProvider(Protocol):
 
 class NotConfiguredLLMProvider:
     """The only `LLMProvider` Phase 4 ships."""
+
+    async def health_check(self) -> LLMResult:
+        return LLMResult(available=False, reason="No LLM provider configured.")
 
     async def understand(self, request: str) -> LLMResult:
         return LLMResult(available=False, reason="No LLM provider configured.")

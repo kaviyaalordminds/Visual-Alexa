@@ -29,13 +29,19 @@ dependencies = [
     # Playwright for controlled browser automation and testing." Real
     # Chromium control, not a second hand-rolled CDP client.
     "playwright>=1.45,<2",
+    # Subsystem activation (docs/subsystem-activation/AI-STATUS.md) —
+    # app/services/agent/providers.py's CloudLLMProvider speaks a generic
+    # OpenAI-compatible HTTP API, never a vendor SDK. Was already a dev-only
+    # test-client dependency below; promoted to a real runtime dependency
+    # rather than hand-rolling async HTTP with urllib (stdlib has no async
+    # HTTP client) — the same well-tested library now serves both roles.
+    "httpx>=0.27,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
     "pytest-asyncio>=0.24,<1",
-    "httpx>=0.27,<1",
     "ruff>=0.6,<1",
     "mypy>=1.11,<2",
 ]

@@ -67,6 +67,40 @@ class Settings(BaseSettings):
     # default-deny posture everywhere else.
     browser_extension_origins: list[str] = []
 
+    # --- Subsystem activation: AI/Voice/Vision provider configuration ---
+    # docs/subsystem-activation/. Empty string = "not configured", the
+    # same convention every other optional subsystem already uses
+    # (NotConfiguredLLMProvider/NotConfiguredVisionProvider/voice's
+    # NotConfigured* providers). Never a hardcoded real value; set via
+    # VEYRA_AI_* env vars in a local .env, never committed. The API key
+    # is never returned by any endpoint or logged — only whether it is
+    # present is ever reported (see app/services/subsystem_health.py).
+    ai_provider: str = ""
+    ai_model: str = ""
+    ai_api_key: str = ""
+    # An OpenAI-compatible chat-completions base URL (works for OpenAI
+    # itself, many OpenAI-compatible cloud providers, and a local
+    # Ollama/LM Studio-style server) — deliberately generic so VEYRA is
+    # never hard-coded to one vendor, per CLAUDE.md's provider-abstraction
+    # rule. No vendor SDK is imported for this; app/services/agent/
+    # providers/cloud_llm_provider.py speaks plain HTTP via httpx.
+    ai_base_url: str = ""
+
+    # Declares intent to use a given STT/TTS/wake-word provider by name.
+    # No real provider ships in this build (see services/voice/voice/
+    # providers/base.py's own docstring) — these fields only let the
+    # health check report an accurate reason ("configured for 'X' but no
+    # real implementation is wired in this build") instead of a bare
+    # "not configured" when an operator has, in fact, expressed intent.
+    stt_provider: str = ""
+    tts_provider: str = ""
+    wake_word_provider: str = ""
+
+    # Declares intent to use a real vision *model* provider (distinct
+    # from OCR/screen-capture, which are already real and checked
+    # independently — see vision's own NotConfiguredVisionProvider).
+    vision_provider: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
