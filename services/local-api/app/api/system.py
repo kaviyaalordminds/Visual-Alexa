@@ -35,6 +35,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.readiness import uptime_seconds
+from app.core.version import BACKEND_VERSION
 from app.db.session import get_session
 from app.models.setting import SystemSetting
 from app.services.device_pairing import device_pairing_service
@@ -67,6 +69,11 @@ class SystemStatus(BaseModel):
     # Additive and optional — a frontend that doesn't know about this
     # field simply ignores it.
     details: dict[str, str] = Field(default_factory=dict)
+    # Part 48 (diagnostics: "VERSION... uptime"), Part 53 (versioning) —
+    # the same single source of truth every manifest in the repo is
+    # tested against (tests/unit/test_version_consistency.py).
+    version: str = BACKEND_VERSION
+    uptime_seconds: float | None = None
 
 
 async def _database_is_live(session: AsyncSession) -> bool:
@@ -129,4 +136,5 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
             "computer_control": computer_control_health.reason,
             "iot": iot_health.reason,
         },
+        uptime_seconds=uptime_seconds(),
     )

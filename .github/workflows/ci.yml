@@ -1,0 +1,80 @@
+name: CI
+
+# Phase 10 P1 (docs/phase-10/DEPENDENCY-AUDIT.md — "no CI pipeline exists
+# at all"). Mirrors scripts/check-python.sh and apps/desktop's own
+# lint/typecheck/test scripts exactly — no separate, hand-maintained
+# command list that could drift from what a developer runs locally.
+# CLAUDE.md/Part 52: do not create fake checks just to make CI green —
+# every job here runs the same real commands documented in README.md and
+# docs/phase-10/PRODUCTION-RUNBOOK.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install VEYRA Python packages
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -e packages/contracts/python
+          pip install -e "services/local-api[dev]"
+          # check-python.sh's own mypy step needs each package's own
+          # dependencies importable too, not just local-api's.
+          pip install -e services/computer-control
+          pip install -e services/vision
+          pip install -e services/voice
+      - name: ruff + mypy + pytest (scripts/check-python.sh)
+        run: bash scripts/check-python.sh
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npx eslint .
+      - run: npx vitest run
+
+  # Build verification only — proves the Rust/Tauri integration compiles
+  # (docs/phase-10/ARCHITECTURE-AUDIT.md §1, apps/desktop/src-tauri/src/
+  # lib.rs). This does NOT produce a real Windows installer: PyInstaller
+  # does not reliably cross-compile, so the actual sidecar binary
+  # (scripts/build-backend-sidecar.py) and a real `tauri build` must run
+  # on a Windows runner — tracked as follow-up work, not faked here. The
+  # placeholder binary below exists only so `cargo check`'s own build
+  # script (which validates every bundle.externalBin entry resolves to a
+  # real file) has something to find for this job's own Linux target
+  # triple.
+  rust-build-verification:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Create a placeholder sidecar (CI compile check only, never shipped)
+        run: |
+          mkdir -p binaries
+          triple="$(rustc -vV | sed -n 's/host: //p')"
+          printf '#!/bin/sh\necho placeholder\n' > "binaries/veyra-local-api-${triple}"
+          chmod +x "binaries/veyra-local-api-${triple}"
+      - run: cargo check --release

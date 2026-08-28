@@ -9,6 +9,12 @@ timeout; `send_text` raising on a truly dead socket is what actually
 surfaces the disconnect and lets `finally` unsubscribe it, instead of the
 queue sitting there accumulating events for a reader that will never come
 back (see event_bus.py's bounded-queue fix for the other half of that).
+
+Phase 10 P1-5 (docs/phase-10/PRODUCTION-AUDIT.md — "no explicit close-all-
+websockets step" on shutdown): `_active_connections` tracks every open
+`/events` socket so `close_all_websockets()` (called from `app.main`'s
+shutdown) can tell each one to close cleanly instead of just letting the
+ASGI server tear the process down out from under them.
 """
 
 from __future__ import annotations
@@ -27,11 +33,32 @@ router = APIRouter(tags=["events"])
 
 HEARTBEAT_INTERVAL_SECONDS = 20.0
 
+_active_connections: set[WebSocket] = set()
+_active_connections_lock = asyncio.Lock()
+
+
+async def close_all_websockets() -> None:
+    """Best-effort: a connection already mid-teardown for its own reasons
+    (client disconnected a moment ago) may raise here — that's fine, it
+    was going to close anyway. Never let one stuck connection block the
+    rest from being told to close."""
+    async with _active_connections_lock:
+        connections = list(_active_connections)
+    for websocket in connections:
+        try:
+            await websocket.close()
+        except Exception:
+            logger.debug(
+                "[VEYRA] /events: error closing a connection during shutdown", exc_info=True
+            )
+
 
 @router.websocket("/events")
 async def events_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     queue = await event_bus.subscribe()
+    async with _active_connections_lock:
+        _active_connections.add(websocket)
     try:
         while True:
             try:
@@ -50,3 +77,5 @@ async def events_ws(websocket: WebSocket) -> None:
         logger.info("[VEYRA] /events: connection ended unexpectedly", exc_info=True)
     finally:
         await event_bus.unsubscribe(queue)
+        async with _active_connections_lock:
+            _active_connections.discard(websocket)

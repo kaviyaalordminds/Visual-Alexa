@@ -5,23 +5,27 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# The one canonical, cwd-independent location for VEYRA's SQLite database
-# and Alembic's own migration target (database/migrations/env.py reads
-# this same Settings.database_url — see that file's own comment). A bare
-# relative default ("./veyra.db") silently resolves against whatever
-# directory a process happens to be launched from: `alembic upgrade head`
-# is conventionally run from `database/`, `uvicorn app.main:app` from
-# `services/local-api/` — two different directories, so a relative
-# default produces two different SQLite files, one of them never
-# migrated. Anchoring to this file's own location instead of the process
-# cwd is what makes "the app" and "Alembic" always agree, regardless of
-# where either is invoked from.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_DEFAULT_DB_PATH = _REPO_ROOT / "database" / "veyra.db"
+from app.core.paths import resolve_app_data_dir
+
+# The one canonical location for VEYRA's SQLite database and Alembic's own
+# migration target (database/migrations/env.py reads this same
+# Settings.database_url — see that file's own comment), and for every
+# other piece of mutable data this app owns. Phase 10 P0-2 (docs/phase-10/
+# ARCHITECTURE-AUDIT.md §5-6): this used to be anchored to this file's own
+# location in the source tree (cwd-independent, but still inside
+# whatever directory happened to contain the checkout) — wrong for an
+# installed app (`C:\Program Files\VEYRA\` needs admin rights to write to
+# and isn't multi-user-safe) and, per Part 35, not the right place for
+# mutable data even in dev. `resolve_app_data_dir()` is the one place
+# this decision is made; `VEYRA_APP_DATA_DIR` overrides it (used by the
+# test suite for isolation — see tests/conftest.py).
+_APP_DATA_DIR = resolve_app_data_dir()
+_DEFAULT_DB_PATH = _APP_DATA_DIR / "database" / "veyra.db"
+_DEFAULT_CREDENTIALS_STORE_PATH = _APP_DATA_DIR / "credentials.enc.json"
+_DEFAULT_BROWSER_DOWNLOADS_DIR = _APP_DATA_DIR / "browser-downloads"
 
 
 class Settings(BaseSettings):
@@ -46,7 +50,7 @@ class Settings(BaseSettings):
     # Phase 7 (docs/phase-7/CREDENTIAL-MANAGEMENT.md) — where
     # FileCredentialStore persists its encrypted blobs. Never plaintext;
     # see app/services/credential_manager.py.
-    credentials_store_path: str = "./credentials.enc.json"
+    credentials_store_path: str = str(_DEFAULT_CREDENTIALS_STORE_PATH)
 
     log_level: str = "INFO"
 
@@ -60,7 +64,7 @@ class Settings(BaseSettings):
 
     # Phase 8 (docs/phase-8/DOWNLOADS.md) — where PlaywrightBrowserAdapter
     # saves a browser-triggered download's bytes.
-    browser_downloads_dir: str = "./browser-downloads"
+    browser_downloads_dir: str = str(_DEFAULT_BROWSER_DOWNLOADS_DIR)
     # Phase 8 (docs/phase-8/EXTENSION-BRIDGE.md) — brief §73 'validate
     # origin.' Empty by default: no extension origin is trusted until an
     # operator explicitly configures one, matching the platform's

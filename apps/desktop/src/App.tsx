@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ComponentStatus, SystemStatus } from "@veyra/contracts";
 
@@ -15,7 +15,7 @@ import PlatformPanel from "./platform/PlatformPanel";
 // console remain for diagnostics rather than being removed.
 const POLL_INTERVAL_MS = 5000;
 
-type StatusRowKey = Exclude<keyof SystemStatus, "details">;
+type StatusRowKey = Exclude<keyof SystemStatus, "details" | "version" | "uptime_seconds">;
 
 const ROWS: Array<{ key: StatusRowKey; label: string }> = [
   { key: "desktop", label: "Desktop" },
@@ -40,18 +40,29 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const avatarState = useAvatarSocket();
 
+  // Phase 10 P1 (docs/phase-10/TESTING-AUDIT.md item 4): a plain
+  // `cancelled` flag only guards against a response landing after
+  // *unmount* — it does nothing if two overlapping polls are in flight
+  // at once (a slow request A, followed by a fast request B that
+  // resolves first) and A's now-stale response then lands and silently
+  // overwrites B's newer state. requestIdRef makes each poll's response
+  // only apply if it's still the most recently *issued* one, regardless
+  // of resolution order.
+  const requestIdRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
 
     async function poll() {
+      const requestId = ++requestIdRef.current;
       try {
         const next = await getSystemStatus();
-        if (!cancelled) {
+        if (!cancelled && requestId === requestIdRef.current) {
           setStatus(next);
           setError(null);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && requestId === requestIdRef.current) {
           setStatus(null);
           setError(err instanceof Error ? err.message : "Unknown error");
         }

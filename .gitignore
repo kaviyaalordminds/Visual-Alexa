@@ -19,6 +19,10 @@ dist-ssr/
 # Rust / Tauri
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+# Phase 10 P0-1: the frozen backend sidecar is a large, platform-specific,
+# build-time artifact produced by scripts/build-backend-sidecar.py — never
+# committed, same as any other compiled binary.
+apps/desktop/src-tauri/binaries/
 
 # Env / secrets
 .env

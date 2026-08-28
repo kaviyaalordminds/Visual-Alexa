@@ -32,9 +32,16 @@ export interface SystemStatus {
   // vision/computer_control/iot; absent keys mean no extra detail exists
   // for that component.
   details?: Record<string, string>;
+  // Phase 10 Part 48/53 (diagnostics, versioning) — additive.
+  version?: string;
+  uptime_seconds?: number | null;
 }
 
 export interface HealthResponse {
   status: string;
   timestamp: string;
+}
+
+export interface ReadyResponse {
+  ready: boolean;
 }

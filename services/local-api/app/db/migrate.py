@@ -35,13 +35,18 @@ from sqlalchemy import create_engine, inspect, text
 
 from app.core.config import Settings
 from app.core.logging import configure_logging
+from app.core.paths import resolve_bundled_resource_dir
 
 logger = logging.getLogger(__name__)
 
-# services/local-api/app/db/migrate.py -> repo root is 4 parents up.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_ALEMBIC_INI = _REPO_ROOT / "database" / "alembic.ini"
-_MIGRATIONS_DIR = _REPO_ROOT / "database" / "migrations"
+# Phase 10 P0-1 (docs/phase-10/ARCHITECTURE-AUDIT.md §5-6): alembic.ini
+# and migrations/ are read-only, shipped resources, not user data — see
+# resolve_bundled_resource_dir()'s own docstring for exactly why a frozen
+# sidecar build resolves this differently (PyInstaller's extraction
+# directory) than a source checkout (the repo root).
+_BUNDLED_RESOURCE_DIR = resolve_bundled_resource_dir()
+_ALEMBIC_INI = _BUNDLED_RESOURCE_DIR / "database" / "alembic.ini"
+_MIGRATIONS_DIR = _BUNDLED_RESOURCE_DIR / "database" / "migrations"
 
 
 class DatabaseInitializationError(RuntimeError):

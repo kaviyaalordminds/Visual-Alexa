@@ -45,6 +45,11 @@ dev = [
     "ruff>=0.6,<1",
     "mypy>=1.11,<2",
 ]
+# Phase 10 P0-1 (scripts/build-backend-sidecar.py) — build-time only,
+# never installed in a normal dev/runtime environment.
+build = [
+    "pyinstaller>=6,<7",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

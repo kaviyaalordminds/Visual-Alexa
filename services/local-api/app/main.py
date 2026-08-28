@@ -31,10 +31,13 @@ from app.api import (
 )
 from app.api import permissions as permissions_router
 from app.api import settings as settings_router
+from app.api.events import close_all_websockets
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.core.readiness import mark_not_ready, mark_ready, mark_started
+from app.core.version import BACKEND_VERSION
 from app.db.migrate import DatabaseInitializationError, ensure_database_ready
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.models.setting import SystemSetting
 from app.services.agent.register import init_orchestrator
 from app.services.application_registry import load_application_registry
@@ -66,8 +69,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    mark_started()
     configure_logging(settings.log_level)
     logger.info("[VEYRA] Starting Local API")
+    logger.info("[VEYRA] Version: %s", BACKEND_VERSION)
     logger.info("[VEYRA] Environment: %s", settings.environment)
     logger.info("[VEYRA] Database: %s", settings.database_url)
 
@@ -145,18 +150,31 @@ async def lifespan(app: FastAPI):
     iot_health = compute_iot_status(device_pairing_service)
     logger.info("[DEVICE] %s — %s", iot_health.status, iot_health.reason)
 
+    mark_ready()
     logger.info("[VEYRA] Local API: READY")
     logger.info("[VEYRA] Listening: %s:%s", settings.host, settings.port)
     yield
-    # Phase 8 — a launched Chromium process must never outlive this
-    # process; nothing else ever closes it if the app shuts down mid-task.
+
+    # Phase 10 P1 (docs/phase-10/PRODUCTION-AUDIT.md — "shutdown does one
+    # thing"): a /ready check racing shutdown must see the truth, every
+    # open WebSocket gets a real close instead of just dying with the
+    # process, the Chromium process Phase 8 launches must never outlive
+    # this one, and the DB engine's own connections are released
+    # explicitly rather than left for the OS to clean up.
+    mark_not_ready()
+    logger.info("[VEYRA] Shutting down")
+    await close_all_websockets()
     await browser_manager.close_all()
+    await engine.dispose()
+    logger.info("[VEYRA] Local API: STOPPED")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=BACKEND_VERSION,
         description="VEYRA Local API — Phase 1 foundation. "
         "See docs/architecture/01-SYSTEM-ARCHITECTURE.md.",
         lifespan=lifespan,
