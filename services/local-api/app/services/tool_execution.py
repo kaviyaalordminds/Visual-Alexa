@@ -5,6 +5,7 @@ takes. docs/security/01-SECURITY-ARCHITECTURE.md §1 (the core chain).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,8 @@ from app.core.event_bus import event_bus
 from app.services.audit import write_audit_log
 from app.services.policy_engine import PolicyDecision, policy_engine
 from app.services.tool_registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class UnknownToolError(LookupError):
@@ -129,7 +132,39 @@ async def execute_tool_call(
         raise UnknownToolError(f"Tool '{call.tool_id}' has no registered executor.")
 
     await event_bus.publish_type(EventType.ASSISTANT_EXECUTING, call.correlation_id)
-    result = await executor.execute(call)
+    try:
+        result = await executor.execute(call)
+    except Exception:
+        # CLAUDE.md: "Every tool call writes exactly one AuditLog row,
+        # success or failure" — an unanticipated bug in a domain executor
+        # must not be able to violate that. Write the row for this
+        # otherwise-uncaught failure, publish the error event, then
+        # re-raise so the underlying bug is still visible (never
+        # swallowed) rather than reported as a clean tool failure.
+        logger.exception(
+            "[VEYRA] Unhandled exception from executor for tool '%s'", call.tool_id
+        )
+        await write_audit_log(
+            session,
+            correlation_id=call.correlation_id,
+            user_id=user_id,
+            tool_id=call.tool_id,
+            action=call.tool_id,
+            target=call.target,
+            risk_level=definition.risk_level,
+            permission_grant_id=decision.matched_grant_id,
+            request_payload_summary=call.arguments,
+            result_status=ToolResultStatus.FAILURE,
+            error_code=ErrorCategory.UNKNOWN_ERROR.value,
+            evidence_tier_used=None,
+            duration_ms=0,
+        )
+        await event_bus.publish_type(
+            EventType.ASSISTANT_ERROR,
+            call.correlation_id,
+            {"reason": "unhandled executor exception", "tool_id": call.tool_id},
+        )
+        raise
 
     await write_audit_log(
         session,

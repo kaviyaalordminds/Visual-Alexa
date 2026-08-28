@@ -2,6 +2,7 @@
 AuditLog row, success or failure.
 """
 
+import pytest
 from app.models.audit import AuditLog
 from sqlalchemy import select
 
@@ -58,3 +59,43 @@ async def test_denied_invocation_still_writes_an_audit_row(client, db_session):
     assert len(rows) == 1
     assert rows[0].result_status.value == "FAILURE"
     assert rows[0].error_code == "PERMISSION_DENIED"
+
+
+async def test_executor_crash_still_writes_an_audit_row(db_session):
+    """Phase 9 audit P1-3: an unanticipated bug in a domain executor must
+    not be able to violate "every tool call writes exactly one AuditLog
+    row, success or failure" — the audit row must exist even when the
+    executor raises something no one anticipated, and the original
+    exception must still propagate (never silently swallowed as a clean
+    failure)."""
+    from app.services.tool_execution import execute_tool_call
+    from app.services.tool_registry import tool_registry
+    from veyra_contracts import RiskLevel, ToolCallRequest, ToolCategory, ToolDefinition
+
+    class _CrashingExecutor:
+        async def execute(self, call):
+            raise RuntimeError("simulated unanticipated executor bug")
+
+    definition = ToolDefinition(
+        id="test.crashing_tool",
+        name="Test Crashing Tool",
+        description="synthetic",
+        category=ToolCategory.SYSTEM,
+        input_schema={},
+        output_schema={},
+        risk_level=RiskLevel.SAFE,
+        required_permission="test.crashing",
+    )
+    tool_registry.register(definition, _CrashingExecutor())
+
+    call = ToolCallRequest(tool_id="test.crashing_tool", correlation_id="corr-crash")
+    with pytest.raises(RuntimeError, match="simulated unanticipated executor bug"):
+        await execute_tool_call(db_session, tool_registry, call=call, user_id="u1")
+
+    result = await db_session.execute(
+        select(AuditLog).where(AuditLog.tool_id == "test.crashing_tool")
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
+    assert rows[0].result_status.value == "FAILURE"
+    assert rows[0].error_code == "UNKNOWN_ERROR"

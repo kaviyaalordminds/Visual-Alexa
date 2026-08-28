@@ -19,6 +19,7 @@ by `grant_permission`/`revoke_permission`.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -29,6 +30,8 @@ from app.models.device import Device as DeviceRow
 from app.models.device import DeviceCapability as DeviceCapabilityRow
 from app.models.device import DevicePermission as DevicePermissionRow
 from app.services.credential_manager import CredentialManager, credential_manager
+
+logger = logging.getLogger(__name__)
 
 _STAGE_ORDER = [
     DevicePairingStage.PAIR,
@@ -238,17 +241,31 @@ class DevicePairingService:
     async def rebuild_permission_cache_on_startup(self, session: AsyncSession) -> None:
         """Mirrors IntegrationRegistry.reconnect_all_on_startup — a real
         DevicePermission granted before a restart must not silently stop
-        working just because the in-memory cache is empty again."""
+        working just because the in-memory cache is empty again.
+
+        Per CLAUDE.md, this optional-subsystem rebuild must never be able
+        to block Local API startup. Each row is fault-isolated: an
+        unexpected error caching one permission is logged and skipped
+        rather than propagated, matching IntegrationRegistry's own
+        per-row isolation."""
         result = await session.execute(
             select(DevicePermissionRow).where(DevicePermissionRow.revoked_at.is_(None))
         )
         now = _now()
         for permission in result.scalars():
-            if permission.expires_at is not None and permission.expires_at <= now:
-                continue
-            self._permission_cache[(permission.device_id, permission.capability_key)] = (
-                permission.expires_at
-            )
+            try:
+                if permission.expires_at is not None and permission.expires_at <= now:
+                    continue
+                self._permission_cache[(permission.device_id, permission.capability_key)] = (
+                    permission.expires_at
+                )
+            except Exception:
+                logger.exception(
+                    "[VEYRA] Device permission cache rebuild failed for device '%s' "
+                    "capability '%s' — skipping, startup continues.",
+                    getattr(permission, "device_id", "?"),
+                    getattr(permission, "capability_key", "?"),
+                )
 
 
 # Module-level singleton — mirrors tool_registry/credential_manager.

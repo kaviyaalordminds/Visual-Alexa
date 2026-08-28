@@ -16,6 +16,7 @@ every tool an integration exposes is registered in the *same*
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,6 +33,8 @@ from veyra_contracts import (
 from app.models.integration import Integration as IntegrationRow
 from app.services.credential_manager import CredentialManager, credential_manager
 from app.services.tool_registry import ToolExecutor, ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -175,22 +178,35 @@ class IntegrationRegistry:
         user connected before a restart should not silently lose its
         tools just because the process restarted. A credential that no
         longer validates is surfaced as EXPIRED rather than silently
-        re-registering tools that would immediately fail NOT_CONNECTED."""
+        re-registering tools that would immediately fail NOT_CONNECTED.
+
+        Per CLAUDE.md, an optional subsystem (an integration a user has
+        connected) must never be able to block Local API startup. Each
+        row is therefore fault-isolated: an unexpected error reconnecting
+        one integration is logged and skipped rather than propagated, so
+        a single malformed/broken row cannot abort startup for every
+        other integration or for the app as a whole."""
         for row in await self.list_rows(session):
             if not row.connected:
                 continue
-            bundle = self._bundles.get(row.provider)
-            if bundle is None:
-                continue
-            if row.credentials_ref is None or not self._credential_manager.validate_credential(
-                row.credentials_ref
-            ):
-                row.connected = False
-                row.state = IntegrationState.EXPIRED
-                continue
-            for tool_def in bundle.tool_definitions:
-                tool_registry.register(
-                    tool_def, bundle.build_executor(tool_def, row.credentials_ref)
+            try:
+                bundle = self._bundles.get(row.provider)
+                if bundle is None:
+                    continue
+                if row.credentials_ref is None or not self._credential_manager.validate_credential(
+                    row.credentials_ref
+                ):
+                    row.connected = False
+                    row.state = IntegrationState.EXPIRED
+                    continue
+                for tool_def in bundle.tool_definitions:
+                    tool_registry.register(
+                        tool_def, bundle.build_executor(tool_def, row.credentials_ref)
+                    )
+            except Exception:
+                logger.exception(
+                    "[VEYRA] Integration reconnect failed for '%s' — skipping, startup continues.",
+                    row.provider,
                 )
         await session.commit()
 
