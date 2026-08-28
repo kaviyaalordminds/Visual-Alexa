@@ -17,6 +17,7 @@ AI connectivity cache, updated only by an actual network probe in
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import sys
@@ -28,6 +29,7 @@ from computer_control.core.capabilities import PlatformCapabilities
 
 from app.core.config import Settings
 from app.services.agent.llm_provider import LLMResult
+from app.services.browser.manager import BrowserManager
 from app.services.device_pairing import DevicePairingService
 
 # The single source of truth for every status value any component in
@@ -227,6 +229,38 @@ def compute_computer_control_status(
     return SubsystemHealth(
         status="CONNECTED",
         reason="Computer control permission enabled; Windows automation backends available.",
+    )
+
+
+# --- Browser --------------------------------------------------------------
+#
+# PHASE_12_AUDIT.md §3 — `browser` had no field in `/system` at all despite
+# a real Playwright engine existing since Phase 8. Like the AI health check
+# above, this deliberately never launches a browser on a passive `/system`
+# poll (that would be slow and side-effecting for every status check) —
+# it reports CONNECTED only when a real session is already open, and
+# otherwise distinguishes "the engine is installed but idle" from "the
+# engine isn't even installed," both honest, neither a guess.
+
+
+def compute_browser_status(browser_manager: BrowserManager) -> SubsystemHealth:
+    open_sessions = browser_manager.registry.list()
+    if open_sessions:
+        return SubsystemHealth(
+            status="CONNECTED",
+            reason=f"{len(open_sessions)} browser session(s) currently open.",
+        )
+    if importlib.util.find_spec("playwright") is not None:
+        return SubsystemHealth(
+            status="NOT CONNECTED",
+            reason=(
+                "No browser session is open yet — this is the correct default. "
+                "Call browser.launch to start one."
+            ),
+        )
+    return SubsystemHealth(
+        status="NOT CONFIGURED",
+        reason="The playwright package is not installed — browser automation is unavailable.",
     )
 
 

@@ -8,6 +8,13 @@
 
 import type { AgentState, AvatarUIStatePayload, VeyraEvent, VisemeFrame } from "@veyra/contracts";
 
+// Phase 12 (PHASE_12_AUDIT.md §5 frontend audit) — the WebSocket hook
+// previously only exposed a boolean `connected`, so a fresh mount and a
+// mid-backoff reconnect attempt were indistinguishable in the UI. This
+// mirrors the real internal states useAvatarSocket.ts already drives
+// (open/error/close/backoff-wait), just finally surfaced.
+export type ConnectionState = "CONNECTING" | "CONNECTED" | "RECONNECTING" | "DISCONNECTED" | "ERROR";
+
 export interface AvatarRuntimeState {
   agentState: AgentState;
   visemes: VisemeFrame[];
@@ -16,7 +23,7 @@ export interface AvatarRuntimeState {
   // speaking — lets the renderer compute "how far into the viseme
   // timeline are we" without storing a ticking value in state itself.
   speakingStartedAt: number | null;
-  connected: boolean;
+  connectionState: ConnectionState;
 }
 
 export const initialAvatarState: AvatarRuntimeState = {
@@ -24,7 +31,7 @@ export const initialAvatarState: AvatarRuntimeState = {
   visemes: [],
   outcome: null,
   speakingStartedAt: null,
-  connected: false,
+  connectionState: "CONNECTING",
 };
 
 function isAvatarUIStatePayload(payload: unknown): payload is AvatarUIStatePayload {

@@ -371,6 +371,20 @@ class AgentOrchestrator:
                 await event_bus.publish_type(
                     EventType.TASK_CONFIRMATION_REQUIRED, task.correlation_id, {"prompt": prompt}
                 )
+                # Phase 12 — a security-observability event distinct from
+                # the task-level TASK_CONFIRMATION_REQUIRED above: this one
+                # names the tool/target/risk being asked about, so a
+                # security dashboard can show "what was requested" without
+                # needing to also subscribe to task events.
+                await event_bus.publish_type(
+                    EventType.PERMISSION_REQUESTED,
+                    task.correlation_id,
+                    {
+                        "tool_id": step.tool_id,
+                        "target": target,
+                        "risk_level": step.risk_level.value,
+                    },
+                )
                 return
 
             if result.status != ToolResultStatus.SUCCESS:

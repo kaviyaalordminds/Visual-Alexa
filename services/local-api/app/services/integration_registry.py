@@ -20,16 +20,19 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from veyra_contracts import (
     ConnectionResult,
+    EventType,
     IntegrationDefinition,
     IntegrationState,
     ToolDefinition,
 )
 
+from app.core.event_bus import event_bus
 from app.models.integration import Integration as IntegrationRow
 from app.services.credential_manager import CredentialManager, credential_manager
 from app.services.tool_registry import ToolExecutor, ToolRegistry
@@ -122,6 +125,9 @@ class IntegrationRegistry:
         for tool_def in bundle.tool_definitions:
             tool_registry.register(tool_def, bundle.build_executor(tool_def, ref))
 
+        await event_bus.publish_type(
+            EventType.INTEGRATION_CONNECTED, str(uuid4()), {"integration_id": integration_id}
+        )
         return ConnectionResult(success=True, state=IntegrationState.CONNECTED)
 
     async def disconnect(
@@ -151,6 +157,9 @@ class IntegrationRegistry:
         for tool_def in bundle.tool_definitions:
             tool_registry.unregister(tool_def.id)
 
+        await event_bus.publish_type(
+            EventType.INTEGRATION_DISCONNECTED, str(uuid4()), {"integration_id": integration_id}
+        )
         return ConnectionResult(success=True, state=IntegrationState.DISCONNECTED)
 
     async def health_check(self, session: AsyncSession, integration_id: str) -> IntegrationState:

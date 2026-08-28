@@ -38,11 +38,15 @@ from app.core.config import get_settings
 from app.core.readiness import uptime_seconds
 from app.core.version import BACKEND_VERSION
 from app.db.session import get_session
+from app.models.memory import Memory as MemoryRow
 from app.models.setting import SystemSetting
+from app.services.browser.manager import browser_manager
 from app.services.device_pairing import device_pairing_service
 from app.services.subsystem_health import (
     ComponentStatus,
+    SubsystemHealth,
     compute_ai_status,
+    compute_browser_status,
     compute_computer_control_status,
     compute_iot_status,
     compute_vision_status,
@@ -62,6 +66,8 @@ class SystemStatus(BaseModel):
     voice: ComponentStatus
     vision: ComponentStatus
     computer_control: ComponentStatus
+    browser: ComponentStatus
+    memory: ComponentStatus
     iot: ComponentStatus
     security: ComponentStatus
     # Human-readable reason per component (e.g. "database" -> "..."),
@@ -88,6 +94,24 @@ async def _database_is_live(session: AsyncSession) -> bool:
         return False
 
 
+async def _compute_memory_status(session: AsyncSession, *, database_live: bool) -> SubsystemHealth:
+    """PHASE_12_AUDIT.md §3 — `memory` had no field in `/system` at all.
+    A real query against the actual `memories` table (not just the
+    generic `SELECT 1` liveness ping above), so a memory-table-specific
+    problem (e.g. schema drift on just this table) is distinguishable
+    from an outright database outage."""
+    if not database_live:
+        return SubsystemHealth(
+            status="ERROR", reason="Memory is unavailable because the database is not live."
+        )
+    try:
+        await session.execute(select(MemoryRow.id).limit(1))
+    except Exception:
+        logger.exception("[VEYRA] /system: memory table check failed")
+        return SubsystemHealth(status="ERROR", reason="The memory table could not be queried.")
+    return SubsystemHealth(status="CONNECTED", reason="Memory table is live and queryable.")
+
+
 @router.get("/system", response_model=SystemStatus)
 async def system_status(session: AsyncSession = Depends(get_session)) -> SystemStatus:
     database_live = await _database_is_live(session)
@@ -112,6 +136,8 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
         enabled_flag=bool(settings_by_key.get("computer_control.enabled")),
         capabilities=detect_capabilities(),
     )
+    browser_health = compute_browser_status(browser_manager)
+    memory_health = await _compute_memory_status(session, database_live=database_live)
     iot_health = compute_iot_status(device_pairing_service)
     security_active = bool(settings_by_key.get("security.active"))
 
@@ -127,6 +153,8 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
         voice=voice_health.status,
         vision=vision_health.status,
         computer_control=computer_control_health.status,
+        browser=browser_health.status,
+        memory=memory_health.status,
         iot=iot_health.status,
         security="ACTIVE" if security_active else "ERROR",
         details={
@@ -134,6 +162,8 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
             "voice": voice_health.reason,
             "vision": vision_health.reason,
             "computer_control": computer_control_health.reason,
+            "browser": browser_health.reason,
+            "memory": memory_health.reason,
             "iot": iot_health.reason,
         },
         uptime_seconds=uptime_seconds(),

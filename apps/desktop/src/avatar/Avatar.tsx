@@ -130,9 +130,13 @@ export function Avatar({ runtime }: { runtime: AvatarRuntimeState }) {
       className="avatar"
       data-testid="avatar"
       data-agent-state={runtime.agentState}
-      data-connected={runtime.connected}
+      data-connection-state={runtime.connectionState}
       role="img"
-      aria-label={runtime.connected ? visual.label : "VEYRA (not connected)"}
+      aria-label={
+        runtime.connectionState === "CONNECTED"
+          ? visual.label
+          : `VEYRA (${runtime.connectionState.toLowerCase()})`
+      }
       style={
         {
           "--aura-color": visual.auraColor,

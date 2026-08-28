@@ -37,6 +37,9 @@ class MockWebSocket {
   simulateMessage(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>);
   }
+  simulateError() {
+    this.onerror?.();
+  }
 }
 
 describe("useAvatarSocket", () => {
@@ -58,7 +61,7 @@ describe("useAvatarSocket", () => {
     await act(async () => {
       first.simulateOpen();
     });
-    expect(result.current.connected).toBe(true);
+    expect(result.current.connectionState).toBe("CONNECTED");
     expect(first.closed).toBe(false);
 
     // Silence past the stale-connection timeout (45s) with not even a
@@ -69,12 +72,41 @@ describe("useAvatarSocket", () => {
     });
 
     expect(first.closed).toBe(true);
-    expect(result.current.connected).toBe(false);
+    expect(result.current.connectionState).toBe("RECONNECTING");
     // A reconnect must have been scheduled (a second socket created,
     // possibly after the backoff delay below has also elapsed).
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+  });
+
+  it("starts CONNECTING, then distinguishes CONNECTED/RECONNECTING/CONNECTING across a full error-triggered reconnect cycle", async () => {
+    const { result } = renderHook(() => useAvatarSocket());
+    expect(result.current.connectionState).toBe("CONNECTING");
+
+    const first = MockWebSocket.instances[0];
+    await act(async () => {
+      first.simulateOpen();
+    });
+    expect(result.current.connectionState).toBe("CONNECTED");
+
+    // simulateError() sets ERROR internally, then immediately closes the
+    // socket (matching real browser behavior: an error precedes a
+    // close) — scheduleReconnect's own RECONNECTING update runs
+    // synchronously right after, so ERROR itself isn't independently
+    // observable through this synchronous test double, but the outcome
+    // it correctly leads to is.
+    await act(async () => {
+      first.simulateError();
+    });
+    expect(result.current.connectionState).toBe("RECONNECTING");
+    expect(first.closed).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.connectionState).toBe("CONNECTING");
     expect(MockWebSocket.instances.length).toBeGreaterThan(1);
   });
 
@@ -97,7 +129,7 @@ describe("useAvatarSocket", () => {
     }
 
     expect(first.closed).toBe(false);
-    expect(result.current.connected).toBe(true);
+    expect(result.current.connectionState).toBe("CONNECTED");
     expect(result.current.agentState).toBe(stateAfterOpen.agentState);
   });
 

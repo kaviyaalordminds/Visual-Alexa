@@ -4,6 +4,7 @@ import type { ComponentStatus, SystemStatus } from "@veyra/contracts";
 
 import { getSystemStatus } from "./api";
 import { Avatar } from "./avatar/Avatar";
+import type { ConnectionState } from "./avatar/state";
 import { useAvatarSocket } from "./avatar/useAvatarSocket";
 import BrowserPanel from "./browser/BrowserPanel";
 import DevConsole from "./DevConsole";
@@ -25,6 +26,10 @@ const ROWS: Array<{ key: StatusRowKey; label: string }> = [
   { key: "voice", label: "Voice" },
   { key: "vision", label: "Vision" },
   { key: "computer_control", label: "Computer Control" },
+  // Phase 12 (PHASE_12_AUDIT.md §3/§8 P0-2) — real backend health checks
+  // for these two now exist; previously there was no field for either.
+  { key: "browser", label: "Browser" },
+  { key: "memory", label: "Memory" },
   { key: "iot", label: "IoT" },
   { key: "security", label: "Security" },
 ];
@@ -33,6 +38,14 @@ function statusClassName(status: ComponentStatus): string {
   if (status === "CONNECTED" || status === "ACTIVE") return "status-ok";
   if (status === "ERROR") return "status-error";
   return "status-neutral";
+}
+
+// Phase 12 (PHASE_12_AUDIT.md §5) — previously only a boolean, so a fresh
+// mount and a mid-backoff reconnect attempt looked identical in the UI.
+function connectionStatusClassName(state: ConnectionState): string {
+  if (state === "CONNECTED") return "status-ok";
+  if (state === "ERROR" || state === "DISCONNECTED") return "status-error";
+  return "status-neutral"; // CONNECTING / RECONNECTING — in progress, not a failure
 }
 
 export default function App() {
@@ -91,6 +104,12 @@ export default function App() {
       )}
 
       <dl className="status-list">
+        <div className="status-row">
+          <dt>Live Updates (WebSocket)</dt>
+          <dd className={connectionStatusClassName(avatarState.connectionState)}>
+            {avatarState.connectionState}
+          </dd>
+        </div>
         {ROWS.map(({ key, label }) => {
           const value = status ? status[key] : "NOT CONNECTED";
           const reason = status?.details?.[key];

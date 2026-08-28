@@ -25,12 +25,18 @@ export interface SystemStatus {
   voice: ComponentStatus;
   vision: ComponentStatus;
   computer_control: ComponentStatus;
+  // Phase 12 — real health checks (PHASE_12_AUDIT.md §3): browser
+  // reflects whether a Playwright session is currently open (or, absent
+  // one, whether the engine is even installed); memory reflects a real
+  // round-trip query against the memories table.
+  browser: ComponentStatus;
+  memory: ComponentStatus;
   iot: ComponentStatus;
   security: ComponentStatus;
   // Human-readable reason per component key (e.g. "ai" -> "No AI
   // provider configured (missing: API key)."). Populated for ai/voice/
-  // vision/computer_control/iot; absent keys mean no extra detail exists
-  // for that component.
+  // vision/computer_control/browser/memory/iot; absent keys mean no
+  // extra detail exists for that component.
   details?: Record<string, string>;
   // Phase 10 Part 48/53 (diagnostics, versioning) — additive.
   version?: string;

@@ -14,6 +14,7 @@ from veyra_contracts import (
     ErrorInfo,
     EventType,
     ToolCallRequest,
+    ToolCategory,
     ToolResult,
     ToolResultStatus,
 )
@@ -132,6 +133,15 @@ async def execute_tool_call(
         raise UnknownToolError(f"Tool '{call.tool_id}' has no registered executor.")
 
     await event_bus.publish_type(EventType.ASSISTANT_EXECUTING, call.correlation_id)
+    # Phase 12 — IoT command observability, gated on category rather than
+    # a second execution path: every IoT tool call (device.set_power,
+    # device.set_temperature, ...) already flows through this exact
+    # chokepoint, so this is the one place to publish from.
+    is_iot = definition.category == ToolCategory.IOT
+    if is_iot:
+        await event_bus.publish_type(
+            EventType.IOT_COMMAND_STARTED, call.correlation_id, {"tool_id": call.tool_id}
+        )
     try:
         result = await executor.execute(call)
     except Exception:
@@ -188,5 +198,11 @@ async def execute_tool_call(
         else EventType.ASSISTANT_ERROR
     )
     await event_bus.publish_type(event_type, call.correlation_id, {"tool_id": call.tool_id})
+    if is_iot:
+        await event_bus.publish_type(
+            EventType.IOT_COMMAND_COMPLETED,
+            call.correlation_id,
+            {"tool_id": call.tool_id, "status": result.status.value},
+        )
 
     return ExecutionOutcome(result=result, policy_decision=decision)

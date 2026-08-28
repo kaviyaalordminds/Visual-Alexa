@@ -214,6 +214,14 @@ async def _check_action_guard(
     if stop is None:
         return
     await _publish_avatar_state(call, AgentState.BLOCKED)
+    # Phase 12 — a security-observability event distinct from the
+    # avatar-state broadcast above: this is the one place all three
+    # in-page browser stop-conditions (CAPTCHA/OTP/payment) converge, so
+    # it's the natural single chokepoint to publish from rather than
+    # duplicating this call at each raise below.
+    await event_bus.publish_type(
+        EventType.SECURITY_BLOCKED, call.correlation_id, {"reason": stop.value}
+    )
     if stop == BrowserStopCondition.CAPTCHA:
         raise _ToolLogicError(
             ErrorCategory.CAPTCHA_DETECTED,
@@ -340,6 +348,9 @@ def build_browser_tools(ctx: BrowserToolContext) -> list[tuple[ToolDefinition, T
             raise _ToolLogicError(ErrorCategory.VALIDATION_ERROR, "'url' is required.")
         validation = ctx.url_validator.validate(url)
         if not validation.allowed:
+            await event_bus.publish_type(
+                EventType.SECURITY_BLOCKED, call.correlation_id, {"reason": "UNSAFE_URL"}
+            )
             raise _ToolLogicError(
                 ErrorCategory.UNSAFE_URL, validation.reason, user_action_required=True
             )

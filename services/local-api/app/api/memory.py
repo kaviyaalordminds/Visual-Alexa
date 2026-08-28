@@ -7,18 +7,32 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import MemoryCategory
+from veyra_contracts import EventType, MemoryCategory
 
 from app.api.deps import get_or_create_local_user
+from app.core.event_bus import event_bus
 from app.db.session import get_session
 from app.models.memory import Memory as MemoryRow
 
 router = APIRouter(prefix="/memory", tags=["memory"])
+
+
+async def _publish_memory_updated(action: str, category: MemoryCategory | None) -> None:
+    # docs/architecture/09-MEMORY.md §2 — "no hidden memory," every write
+    # already goes through this one explicit API. Phase 12 adds an event
+    # alongside the existing DB write so a security/memory dashboard can
+    # observe changes in real time, without a second write path.
+    await event_bus.publish_type(
+        EventType.MEMORY_UPDATED,
+        str(uuid4()),
+        {"action": action, "category": category.value if category else None},
+    )
 
 
 class MemoryOut(BaseModel):
@@ -71,6 +85,7 @@ async def create_memory(
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    await _publish_memory_updated("created", row.category)
     return MemoryOut.model_validate(row)
 
 
@@ -85,6 +100,7 @@ async def update_memory(
     row.content = body.content
     await session.commit()
     await session.refresh(row)
+    await _publish_memory_updated("updated", row.category)
     return MemoryOut.model_validate(row)
 
 
@@ -94,5 +110,28 @@ async def delete_memory(memory_id: str, session: AsyncSession = Depends(get_sess
     row = result.scalars().first()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Unknown memory record '{memory_id}'.")
+    category = row.category
     await session.delete(row)
     await session.commit()
+    await _publish_memory_updated("deleted", category)
+
+
+@router.delete("", status_code=200)
+async def clear_memory(
+    category: MemoryCategory | None = None, session: AsyncSession = Depends(get_session)
+) -> dict[str, int]:
+    """Phase 12 §21 — a bulk 'clear' operation, distinct from per-record
+    delete above. `category=None` clears every category (a full memory
+    wipe); passing `category` scopes it to just that one ("disable"/
+    reset a single category's stored records). Returns the count deleted
+    so a caller/UI can confirm the scope of what just happened."""
+    stmt = select(MemoryRow)
+    if category is not None:
+        stmt = stmt.where(MemoryRow.category == category)
+    result = await session.execute(stmt)
+    rows = list(result.scalars())
+    for row in rows:
+        await session.delete(row)
+    await session.commit()
+    await _publish_memory_updated("cleared", category)
+    return {"deleted": len(rows)}

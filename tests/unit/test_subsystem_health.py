@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from app.core.config import Settings
 from app.services.agent.llm_provider import LLMResult
+from app.services.browser.manager import BrowserManager
+from app.services.browser.testing import FakeBrowserAdapter
 from app.services.device_pairing import DevicePairingService
 from app.services.subsystem_health import (
     compute_ai_status,
+    compute_browser_status,
     compute_computer_control_status,
     compute_iot_status,
     compute_vision_status,
@@ -151,6 +154,31 @@ class TestComputerControlStatus:
             enabled_flag=False, capabilities=_capabilities(is_windows=True)
         )
         assert health.status == "NOT ENABLED"
+
+
+class TestBrowserStatus:
+    def test_not_connected_with_no_open_sessions(self):
+        manager = BrowserManager(adapter_factory=FakeBrowserAdapter)
+        health = compute_browser_status(manager)
+        assert health.status in ("NOT CONNECTED", "NOT CONFIGURED")
+
+    async def test_connected_with_a_real_open_session(self):
+        manager = BrowserManager(adapter_factory=FakeBrowserAdapter)
+        await manager.launch()
+        try:
+            health = compute_browser_status(manager)
+            assert health.status == "CONNECTED"
+            assert "1 browser session" in health.reason
+        finally:
+            await manager.close_all()
+
+    def test_not_configured_when_playwright_is_not_installed(self, monkeypatch):
+        manager = BrowserManager(adapter_factory=FakeBrowserAdapter)
+        monkeypatch.setattr(
+            "app.services.subsystem_health.importlib.util.find_spec", lambda name: None
+        )
+        health = compute_browser_status(manager)
+        assert health.status == "NOT CONFIGURED"
 
 
 class TestIoTStatus:

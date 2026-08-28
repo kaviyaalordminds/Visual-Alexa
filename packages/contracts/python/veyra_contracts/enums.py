@@ -264,6 +264,26 @@ class EventType(StrEnum):
     # avatar/animation implementation ships in Phase 5, only the event.
     VOICE_UI_STATE_CHANGED = "voice.ui_state.changed"
 
+    # --- Phase 12: production hardening — categories PHASE_12_AUDIT.md
+    # §3/§8 found genuinely absent (not merely unpublished). Each is
+    # published only at a real, pre-existing decision point (the Policy
+    # Engine, browser security stop-conditions, device pairing, the
+    # integration registry, the memory API, the audit-log writer) — no
+    # new decision logic was added just to have something to publish.
+    PERMISSION_REQUESTED = "permission.requested"
+    PERMISSION_APPROVED = "permission.approved"
+    PERMISSION_DENIED = "permission.denied"
+    SECURITY_WARNING = "security.warning"
+    SECURITY_BLOCKED = "security.blocked"
+    IOT_DEVICE_CONNECTED = "iot.device_connected"
+    IOT_DEVICE_DISCONNECTED = "iot.device_disconnected"
+    IOT_COMMAND_STARTED = "iot.command_started"
+    IOT_COMMAND_COMPLETED = "iot.command_completed"
+    INTEGRATION_CONNECTED = "integration.connected"
+    INTEGRATION_DISCONNECTED = "integration.disconnected"
+    MEMORY_UPDATED = "memory.updated"
+    AUDIT_RECORD_CREATED = "audit.record_created"
+
 
 class RecoveryStrategy(StrEnum):
     """docs/phase-4/RECOVERY.md"""

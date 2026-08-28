@@ -12,13 +12,21 @@ the rule could be bypassed from.
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import ConnectionProtocol, DevicePairingStage, DeviceTrustStatus, DeviceType
+from veyra_contracts import (
+    ConnectionProtocol,
+    DevicePairingStage,
+    DeviceTrustStatus,
+    DeviceType,
+    EventType,
+)
 
+from app.core.event_bus import event_bus
 from app.db.session import get_session
 from app.models.device import Device as DeviceRow
 from app.services.device_pairing import (
@@ -133,6 +141,15 @@ async def register_capabilities(
         )
     except (UnknownDeviceError, PairingStageError) as exc:
         raise _handle_pairing_error(exc) from exc
+    # Phase 12 — this is the real moment a device becomes controllable
+    # (trust_status -> PAIRED, the last of the six mandatory pairing
+    # stages before CONTROL): the honest point to call it "connected,"
+    # not merely "pairing was requested." No task/tool call is in
+    # progress here, so a fresh correlation_id is minted for this event,
+    # matching how /tasks mints one for a new task.
+    await event_bus.publish_type(
+        EventType.IOT_DEVICE_CONNECTED, str(uuid4()), {"device_id": device_id}
+    )
     return DeviceOut.model_validate(row)
 
 
@@ -161,5 +178,13 @@ async def revoke_permission(
 ) -> dict:
     await device_pairing_service.revoke_permission(
         session, device_id, capability_key=body.capability_key
+    )
+    # Phase 12 — revoking a device's only real access grant is the
+    # closest real analogue this codebase has to "disconnect": there is
+    # no separate unpair/forget-device operation to hook instead.
+    await event_bus.publish_type(
+        EventType.IOT_DEVICE_DISCONNECTED,
+        str(uuid4()),
+        {"device_id": device_id, "capability_key": body.capability_key},
     )
     return {"device_id": device_id, "capability_key": body.capability_key, "revoked": True}

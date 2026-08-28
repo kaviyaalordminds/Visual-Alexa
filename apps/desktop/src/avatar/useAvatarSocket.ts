@@ -74,7 +74,7 @@ export function useAvatarSocket(): AvatarRuntimeState {
         }
         reconnectAttempt = 0;
         armStaleTimer();
-        setState((prev) => ({ ...prev, connected: true }));
+        setState((prev) => ({ ...prev, connectionState: "CONNECTED" }));
       };
 
       socket.onmessage = (message: MessageEvent<string>) => {
@@ -97,15 +97,31 @@ export function useAvatarSocket(): AvatarRuntimeState {
       const scheduleReconnect = () => {
         clearStaleTimer();
         if (cancelled) {
+          // Matches the pre-Phase-12 discipline this replaces: never
+          // touch state after cleanup has run — nothing is left to read
+          // it, and a real (non-mocked) WebSocket's close event fires
+          // asynchronously, possibly after the component has already
+          // unmounted.
           return;
         }
-        setState((prev) => ({ ...prev, connected: false }));
+        setState((prev) => ({ ...prev, connectionState: "RECONNECTING" }));
         const delay = backoffDelay(reconnectAttempt);
         reconnectAttempt += 1;
-        reconnectTimer = setTimeout(connect, delay);
+        reconnectTimer = setTimeout(() => {
+          setState((prev) => ({ ...prev, connectionState: "CONNECTING" }));
+          connect();
+        }, delay);
       };
       socket.onclose = scheduleReconnect;
-      socket.onerror = () => socket?.close();
+      socket.onerror = () => {
+        if (!cancelled) {
+          // Real, distinct signal from a clean close — surfaced briefly
+          // before scheduleReconnect (triggered by the close event this
+          // itself causes) settles into RECONNECTING for the backoff wait.
+          setState((prev) => ({ ...prev, connectionState: "ERROR" }));
+        }
+        socket?.close();
+      };
     }
 
     connect();

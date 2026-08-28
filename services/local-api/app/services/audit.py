@@ -7,8 +7,9 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import EvidenceTier, RiskLevel, ToolResultStatus
+from veyra_contracts import EventType, EvidenceTier, RiskLevel, ToolResultStatus
 
+from app.core.event_bus import event_bus
 from app.models.audit import AuditLog
 
 # Fields the summarizer must never include verbatim (docs/security/06 §5).
@@ -97,4 +98,19 @@ async def write_audit_log(
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    # Phase 12 — every AuditLog row already goes through this one
+    # function (docs/security/06-AUDIT-LOGGING.md); publishing here means
+    # a security dashboard can observe audit entries in real time without
+    # polling, with no second write path and no risk of drifting from
+    # what actually got persisted (the event is built from the same row).
+    await event_bus.publish_type(
+        EventType.AUDIT_RECORD_CREATED,
+        correlation_id,
+        {
+            "tool_id": tool_id,
+            "action": action,
+            "risk_level": risk_level.value,
+            "result_status": result_status.value,
+        },
+    )
     return row

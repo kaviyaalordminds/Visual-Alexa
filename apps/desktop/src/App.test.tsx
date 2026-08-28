@@ -13,7 +13,7 @@ vi.mock("./avatar/useAvatarSocket", () => ({
     visemes: [],
     outcome: null,
     speakingStartedAt: null,
-    connected: false,
+    connectionState: "DISCONNECTED",
   }),
 }));
 vi.mock("./browser/BrowserPanel", () => ({ default: () => null }));
@@ -38,6 +38,8 @@ const baseStatus: SystemStatus = {
   voice: "NOT CONFIGURED",
   vision: "NOT CONFIGURED",
   computer_control: "NOT ENABLED",
+  browser: "NOT CONNECTED",
+  memory: "CONNECTED",
   iot: "NOT CONNECTED",
   security: "ACTIVE",
 };

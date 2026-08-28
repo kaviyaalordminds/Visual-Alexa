@@ -35,6 +35,9 @@ async def test_system_status_defaults_match_status_ui_spec(client):
     assert body["voice"] == "NOT CONFIGURED"
     assert body["vision"] in ("NOT CONFIGURED", "DEGRADED")
     assert body["computer_control"] == "NOT ENABLED"
+    # Phase 12 — real browser/memory checks, previously absent fields.
+    assert body["browser"] in ("NOT CONNECTED", "NOT CONFIGURED")
+    assert body["memory"] == "CONNECTED"
     assert body["iot"] == "NOT CONNECTED"
     assert body["security"] == "ACTIVE"
 
@@ -60,3 +63,6 @@ async def test_system_status_reports_database_error_truthfully_when_db_is_down(
     # Still honest about everything else it can't verify without the DB.
     assert body["ai"] == "NOT CONFIGURED"
     assert body["security"] != "ACTIVE"
+    # memory's own check is gated on database_live too — never claims
+    # CONNECTED off the back of a DB that's already reported down.
+    assert body["memory"] == "ERROR"

@@ -75,7 +75,22 @@ export type EventType =
   | "voice.response.finished"
   | "voice.interrupted"
   | "voice.error"
-  | "voice.ui_state.changed";
+  | "voice.ui_state.changed"
+  // Phase 12: production hardening — see veyra_contracts.enums.EventType
+  // (Python) for why these categories were added.
+  | "permission.requested"
+  | "permission.approved"
+  | "permission.denied"
+  | "security.warning"
+  | "security.blocked"
+  | "iot.device_connected"
+  | "iot.device_disconnected"
+  | "iot.command_started"
+  | "iot.command_completed"
+  | "integration.connected"
+  | "integration.disconnected"
+  | "memory.updated"
+  | "audit.record_created";
 
 // docs/phase-4/AGENT-ARCHITECTURE.md §5 / docs/phase-6/AVATAR-ARCHITECTURE.md
 // — semantic states for the avatar to render, computed server-side from

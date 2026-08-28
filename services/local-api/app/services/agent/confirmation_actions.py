@@ -14,9 +14,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import PermissionDecision, TaskState
+from veyra_contracts import EventType, PermissionDecision, TaskState
 
 from app.api.deps import get_or_create_local_user
+from app.core.event_bus import event_bus
 from app.models.task import Task as TaskRow
 from app.models.tool import PermissionGrant as PermissionGrantRow
 from app.services.agent.state_machine import TaskStateMachine
@@ -43,6 +44,9 @@ async def apply_confirmation_decision(
     if task.state != TaskState.WAITING_PERMISSION or not (task.result or {}).get("pending_plan"):
         raise NoPendingConfirmationError("Task has no pending confirmation to resume.")
 
+    pending_tool_id = (task.result or {}).get("pending_tool_id")
+    pending_target = (task.result or {}).get("pending_target")
+
     if decision in (PermissionDecision.DENY, PermissionDecision.CANCEL):
         # docs/phase-4 §21 — "Do not interpret ambiguous responses as
         # confirmation." A paused task has no running orchestrator loop
@@ -54,14 +58,19 @@ async def apply_confirmation_decision(
         task.result = {"outcome": "denied_by_user"}
         await session.commit()
         await session.refresh(task)
+        await event_bus.publish_type(
+            EventType.PERMISSION_DENIED,
+            task.correlation_id,
+            {"tool_id": pending_tool_id, "target": pending_target},
+        )
         return False
 
     user = await get_or_create_local_user(session)
     pending_risk = (task.result or {}).get("pending_risk_level")
     grant = PermissionGrantRow(
         user_id=user.id,
-        tool_id=(task.result or {}).get("pending_tool_id"),
-        target=(task.result or {}).get("pending_target"),
+        tool_id=pending_tool_id,
+        target=pending_target,
         risk_level=pending_risk,
         scope=decision,
         granted_at=datetime.now(UTC),
@@ -70,4 +79,9 @@ async def apply_confirmation_decision(
     session.add(grant)
     await session.commit()
     await session.refresh(task)
+    await event_bus.publish_type(
+        EventType.PERMISSION_APPROVED,
+        task.correlation_id,
+        {"tool_id": pending_tool_id, "target": pending_target, "scope": decision.value},
+    )
     return True
