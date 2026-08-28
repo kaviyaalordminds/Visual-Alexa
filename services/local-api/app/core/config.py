@@ -5,8 +5,23 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The one canonical, cwd-independent location for VEYRA's SQLite database
+# and Alembic's own migration target (database/migrations/env.py reads
+# this same Settings.database_url — see that file's own comment). A bare
+# relative default ("./veyra.db") silently resolves against whatever
+# directory a process happens to be launched from: `alembic upgrade head`
+# is conventionally run from `database/`, `uvicorn app.main:app` from
+# `services/local-api/` — two different directories, so a relative
+# default produces two different SQLite files, one of them never
+# migrated. Anchoring to this file's own location instead of the process
+# cwd is what makes "the app" and "Alembic" always agree, regardless of
+# where either is invoked from.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_DEFAULT_DB_PATH = _REPO_ROOT / "database" / "veyra.db"
 
 
 class Settings(BaseSettings):
@@ -21,7 +36,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8756
 
-    database_url: str = "sqlite+aiosqlite:///./veyra.db"
+    database_url: str = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
 
     # Dev-only local secret encryption fallback — see
     # docs/security/05-DATA-PROTECTION.md §1. Production Windows builds use
