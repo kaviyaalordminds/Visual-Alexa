@@ -172,7 +172,7 @@ async def test_confirmation_pause_and_resume(client, fs_sandbox, db_session, mon
     folder — proving the pause was real, not merely modeled."""
     task = await _create(client, "open my confirm-test-target")
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         plan = ExecutionPlan(
             goal="test_confirmation",
             steps=[
@@ -256,22 +256,27 @@ async def test_pause_on_a_terminal_task_is_a_harmless_noop(client):
     assert resp.json()["state"] == "COMPLETED"
 
 
-async def test_replan_decision_fails_cleanly_without_crashing(client, monkeypatch):
-    """Real bug found while verifying this phase's other fixes:
-    RecoveryManager can legitimately decide REPLAN (a retryable error
-    persisting past max_recovery_attempts, with replan budget still
-    available — see test_agent_recovery.py's own unit tests of that
-    decision) but the orchestrator's REPLAN branch used to transition the
-    task through PLANNING before calling `_fail()`. PLANNING's only legal
-    exits are WAITING_PERMISSION/WAITING_USER, so `_fail()`'s own internal
-    transition to FAILED would raise IllegalTaskTransitionError every
-    single time this branch was ever actually reached in real execution —
-    it was never caught because the recovery unit tests only exercise
-    RecoveryManager.decide() in isolation, never the orchestrator's own
-    handling of a REPLAN decision. Forcing every tool call to fail with a
-    retryable error, with max_recovery_attempts=0 (so the retry budget is
-    immediately exhausted) and max_replans=1 (so REPLAN, not ASK_USER, is
-    chosen), reproduces the exact real path."""
+async def test_replan_exhausted_asks_user_never_crashes(client, monkeypatch):
+    """Real bug found while verifying Phase 10: RecoveryManager can
+    legitimately decide REPLAN (a retryable error persisting past
+    max_recovery_attempts, with replan budget still available — see
+    test_agent_recovery.py's own unit tests of that decision) but the
+    orchestrator's old REPLAN branch was an always-fails stub that
+    transitioned the task through PLANNING before calling `_fail()`.
+    PLANNING's only legal exits are WAITING_PERMISSION/WAITING_USER, so
+    that would have raised IllegalTaskTransitionError the moment this
+    branch was ever really reached.
+
+    Phase 11 replaced the stub with real replanning
+    (`AgentOrchestrator._plan_from_intent`, reused by both the first plan
+    and every REPLAN decision): forcing every tool call to fail with a
+    retryable error, with max_recovery_attempts=0 (the retry budget is
+    immediately exhausted on every attempt) and max_replans=1, means the
+    planner is asked to replan once for real (it produces the exact same
+    plan — nothing about the environment changed), that replanned attempt
+    fails too, and — with the replan budget then spent — RecoveryManager
+    correctly falls through to ASK_USER rather than crashing or silently
+    failing."""
 
     async def always_times_out(self, session, task, tool_id, arguments):
         return ToolResult(
@@ -299,14 +304,106 @@ async def test_replan_decision_fails_cleanly_without_crashing(client, monkeypatc
         },
     )
     final = await _run_and_wait(client, task["id"])
-    assert final["state"] == "FAILED"
-    assert "replan" in final["failure_reason"].lower()
+    assert final["state"] == "WAITING_USER"
+    assert "replan" in final["result"]["clarifying_question"].lower()
+
+
+async def test_replan_recovers_when_the_replanned_attempt_succeeds(client, fs_sandbox, monkeypatch):
+    """The REPLAN path is real recovery, not just a crash-free failure:
+    if the tool call that failed the first time succeeds once the planner
+    re-runs (e.g. a transient condition genuinely clears), the task
+    completes normally through the freshly-built plan — proving
+    `_plan_from_intent` really does hand a new plan to `_execute_plan`
+    rather than merely avoiding an exception."""
+    with open(os.path.join(fs_sandbox, "invoice.txt"), "w") as f:
+        f.write("x")
+
+    call_count = 0
+    real_call_tool = AgentOrchestrator._call_tool
+
+    async def fails_once_then_real(self, session, task, tool_id, arguments):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return ToolResult(
+                call_id="test-call",
+                status=ToolResultStatus.FAILURE,
+                error=ErrorInfo(
+                    code=ErrorCategory.TIMEOUT,
+                    message="simulated transient timeout",
+                    retryable=True,
+                    correlation_id=task.correlation_id,
+                ),
+                duration_ms=1,
+            )
+        return await real_call_tool(self, session, task, tool_id, arguments)
+
+    monkeypatch.setattr(AgentOrchestrator, "_call_tool", fails_once_then_real)
+
+    task = await _create(
+        client,
+        "search for invoice",
+        budget={
+            "max_steps": 10,
+            "timeout_seconds": 30,
+            "max_recovery_attempts": 0,
+            "max_replans": 1,
+        },
+    )
+    final = await _run_and_wait(client, task["id"])
+    assert final["state"] == "COMPLETED"
+    assert call_count >= 2
+    steps = (await client.get(f"/tasks/{task['id']}/steps")).json()
+    assert steps[-1]["tool_id"] == "filesystem.search"
+    assert steps[-1]["state"] == "COMPLETED"
+
+
+async def test_workflow_memory_alias_resolves_a_real_open_task(client, fs_sandbox):
+    """docs/architecture/09-MEMORY.md §4, end to end through the real
+    `/memory` API and a real `Task` run — no fakes: a WorkflowMemory alias
+    ('office folder' -> the sandbox directory) is written first, then
+    'open my office folder' resolves and opens it directly, with no
+    clarifying question and no filesystem.search step at all."""
+    memory_resp = await client.post(
+        "/memory",
+        json={
+            "category": "WORKFLOW",
+            "key": "office folder",
+            "content": {"path": fs_sandbox},
+            "source": "user_explicit",
+        },
+    )
+    assert memory_resp.status_code == 201
+
+    task = await _create(client, "open my office folder")
+    final = await _run_and_wait(client, task["id"])
+    steps = (await client.get(f"/tasks/{task['id']}/steps")).json()
+
+    assert steps[0]["tool_id"] == "filesystem.open"
+    assert steps[0]["arguments"]["path"] == fs_sandbox
+    assert final["state"] in ("COMPLETED", "FAILED")  # the open itself may fail on this host
+    assert all(s["tool_id"] != "filesystem.search" for s in steps)
+
+
+async def test_browser_task_search_completes_for_real(client):
+    """Phase 11 — a real, bounded `browser_task` plan (launch -> search ->
+    observe) runs through the actual orchestrator/Policy Engine/Tool
+    Registry chain against the browser tools' `FakeBrowserAdapter` (see
+    tests/conftest.py) — genuine multi-step tool execution, not a fake
+    'browser automation is not available yet' answer."""
+    task = await _create(client, "search the web for veyra release notes")
+    final = await _run_and_wait(client, task["id"])
+    assert final["state"] == "COMPLETED"
+    steps = (await client.get(f"/tasks/{task['id']}/steps")).json()
+    assert [s["tool_id"] for s in steps] == ["browser.launch", "browser.search", "browser.get_page"]
+    assert all(s["state"] == "COMPLETED" for s in steps)
+    assert steps[1]["arguments"] == {"query": "veyra release notes", "engine": "google"}
 
 
 async def test_confirmation_denial_cancels_without_acting(client, fs_sandbox, monkeypatch):
     task = await _create(client, "open my confirm-deny-target")
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         plan = ExecutionPlan(
             goal="test_confirmation",
             steps=[

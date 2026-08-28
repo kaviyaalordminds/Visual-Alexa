@@ -98,22 +98,23 @@ Both are now covered by regression tests in
 | 8 | "Stop." during execution | **Passes** — cancellation genuinely interrupts a multi-step plan |
 | 9 | "Turn on the AC." | **Passes** — `CAPABILITY_UNAVAILABLE`, no network scan, no device discovery |
 | 10 | "Open my project," two projects exist | **Passes** — `AMBIGUOUS`/`WAITING_USER`, never guessed |
-| 11 | "Open Chrome and search YouTube..." | `browser_task` intent recognized; plan is `CAPABILITY_UNAVAILABLE` (no browser tools registered — brief §64 explicitly excludes building the full browser agent) |
+| 11 | "Open Chrome and search YouTube..." | `browser_task` intent recognized; at Phase 4 time, plan was `CAPABILITY_UNAVAILABLE` (no browser tools registered — brief §64 explicitly excluded building the full browser agent). **Superseded**: Phase 8 registered real browser tools, and Phase 11 (`PLANNER.md`) added a real, bounded `browser_task` planning template — "search the web for X" now plans a real `browser.launch -> browser.search -> browser.get_page` sequence. A full "open Chrome, search YouTube, click play" flow still isn't preplanned (see `docs/agent/RECOVERY.md`'s sibling docs under `docs/agent/`) — that would mean guessing an unobserved click target, which this deterministic planner still correctly refuses to do. |
 
 ## 5. Known limitations
 
 - **No real LLM** — `NotConfiguredLLMProvider` only; `IntentInterpreter`/
-  `TaskPlanner` cover four goal templates, not general reasoning.
-- **`REPLAN` is a documented gap** — the state transition and budget
-  accounting exist; the actual re-planning-with-updated-context logic
-  does not (see `RECOVERY.md` §3).
+  `TaskPlanner` cover a small set of goal templates, not general reasoning.
+- **`REPLAN` was a documented gap at Phase 4 time — now real (Phase 11)**
+  — see `RECOVERY.md` §3 for the current, real re-planning-with-updated-
+  context implementation.
 - **No perception→intent bridge** — Phase 3's `GroundedElement`/
   `ScreenObservation` outputs are not yet consumed by `IntentInterpreter`/
   `TaskPlanner`; "click the grounded Download button" as a task is not
   yet expressible.
-- **No browser tools registered** — `browser_task` intents are correctly
-  classified but always `CAPABILITY_UNAVAILABLE`, matching brief §64's
-  explicit exclusion.
+- **Browser tools are real (Phase 8) and now have a bounded planning
+  template (Phase 11)** — see the Test 11 note above; multi-step,
+  target-guessing browser flows remain intentionally out of scope for the
+  deterministic planner.
 - **Windows-only tool execution remains unverified on real Windows** —
   same caveat as Phase 2/3; `application.launch` and `filesystem.open`'s
   Windows path (`os.startfile`) is real, reviewed code, not runtime-

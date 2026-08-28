@@ -16,13 +16,16 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from veyra_contracts import (
     ErrorCategory,
     EventType,
     ExecutionPlan,
+    MemoryCategory,
     PlanStep,
     RecoveryStrategy,
+    StructuredIntent,
     TaskBudget,
     TaskState,
     ToolCallRequest,
@@ -30,6 +33,7 @@ from veyra_contracts import (
 )
 
 from app.core.event_bus import event_bus
+from app.models.memory import Memory as MemoryRow
 from app.models.task import Task as TaskRow
 from app.models.task import TaskStep as TaskStepRow
 from app.services.agent.confirmation import ConfirmationManager
@@ -143,8 +147,27 @@ class AgentOrchestrator:
             )
             return
 
+        await self._plan_from_intent(session, sm, task, intent, tracker, context)
+
+    async def _plan_from_intent(
+        self,
+        session: AsyncSession,
+        sm: TaskStateMachine,
+        task: TaskRow,
+        intent: StructuredIntent,
+        tracker: LoopBudgetTracker,
+        context: TaskContext,
+    ) -> None:
+        """Turns an already-understood intent into a plan and either stops
+        the task (WAITING_USER/FAILED) or continues into `_execute_plan`.
+        Shared by `run()`'s first plan and `_recover()`'s REPLAN strategy
+        (docs/phase-4/RECOVERY.md) — both call this only once `sm` is
+        already in PLANNING, so the same legal-transition rules
+        (PLANNING -> WAITING_PERMISSION/WAITING_USER) apply either way."""
         outcome = await self._planner.create_plan(
-            intent, search=self._make_search_fn(session, task)
+            intent,
+            search=self._make_search_fn(session, task),
+            memory_lookup=self._make_memory_lookup_fn(session, task),
         )
 
         if outcome.status == "AMBIGUOUS":
@@ -457,19 +480,37 @@ class AgentOrchestrator:
             if budget_reason:
                 await self._timeout(session, sm, task, budget_reason)
                 return False
-            # Real bug found during this phase's verification: real
-            # replanning isn't implemented yet, so this branch always ends
-            # in failure — but the old code transitioned to PLANNING first
-            # (and persisted it) before calling _fail(), which internally
-            # transitions to FAILED. PLANNING's only legal exits are
-            # WAITING_PERMISSION/WAITING_USER (veyra_contracts._LEGAL_
-            # TRANSITIONS), so that _fail() call would always raise
-            # IllegalTaskTransitionError the moment RecoveryManager ever
-            # actually picked REPLAN (never exercised by an integration
-            # test — only RecoveryManager.decide() was tested in
-            # isolation). RECOVERING -> FAILED is directly legal, so just
-            # fail from here; there is no real PLANNING step to record.
-            await self._fail(session, sm, task, "Replanning is not yet supported for this goal.")
+
+            # Real replanning: re-run the deterministic planner against the
+            # same understood intent captured at task creation, with a
+            # freshly-called search_fn (docs/phase-4/RECOVERY.md — "replan
+            # with fresh context", not a blind re-attempt of the exact same
+            # plan). RECOVERING -> PLANNING is a legal transition
+            # (veyra_contracts._LEGAL_TRANSITIONS); `_plan_from_intent`
+            # (shared with `run()`'s first plan) then either stops the task
+            # at WAITING_USER/FAILED or continues straight into
+            # `_execute_plan` with the new plan — never a second, parallel
+            # execution path.
+            intent = (
+                StructuredIntent.model_validate(task.normalized_goal)
+                if task.normalized_goal
+                else None
+            )
+            if intent is None or intent.status != "UNDERSTOOD":
+                await self._fail(
+                    session,
+                    sm,
+                    task,
+                    "Replanning failed: no understood intent is available to replan from.",
+                    code=ErrorCategory.INVALID_PLAN,
+                )
+                return False
+
+            sm.transition(TaskState.PLANNING)
+            await self._save(session, task)
+            await event_bus.publish_type(EventType.TASK_RECOVERY_COMPLETED, task.correlation_id)
+            await event_bus.publish_type(EventType.TASK_PLANNED, task.correlation_id)
+            await self._plan_from_intent(session, sm, task, intent, tracker, context)
             return False
 
         if decision.strategy == RecoveryStrategy.ASK_USER:
@@ -517,6 +558,36 @@ class AgentOrchestrator:
             return candidates
 
         return _search
+
+    def _make_memory_lookup_fn(self, session: AsyncSession, task: TaskRow):
+        """docs/architecture/09-MEMORY.md §4 — real `WorkflowMemory` alias
+        resolution: reads the same `Memory` rows `/memory`'s own CRUD API
+        exposes (never a second, parallel alias store), scoped to this
+        task's user, category=WORKFLOW. A case-insensitive exact match on
+        `key` is deliberate — this resolves a user-defined alias the user
+        typed verbatim before, not a fuzzy/semantic guess (guessing between
+        candidates is `resolve_ambiguity`'s job, never this one's)."""
+
+        async def _lookup(alias: str) -> str | None:
+            normalized = alias.strip().lower()
+            if not normalized:
+                return None
+            result = await session.execute(
+                select(MemoryRow).where(
+                    MemoryRow.user_id == task.user_id,
+                    MemoryRow.category == MemoryCategory.WORKFLOW,
+                )
+            )
+            for row in result.scalars():
+                key = (row.key or "").strip().lower()
+                if key != normalized:
+                    continue
+                path = row.content.get("path") if isinstance(row.content, dict) else None
+                if path:
+                    return str(path)
+            return None
+
+        return _lookup
 
     async def _wait_for_user(
         self,

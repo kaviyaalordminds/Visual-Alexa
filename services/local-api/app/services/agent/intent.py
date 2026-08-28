@@ -37,6 +37,26 @@ _UNSAFE_PATTERNS = [
     )
 ]
 
+# docs/security/04-DEVICE-TRUST.md — "Local-only boundary": the installed
+# PC is the only trusted/controllable device, no exceptions. Checked before
+# any goal classification (including Phase 11's real `browser_task`
+# template) so a request naming another machine is refused honestly,
+# never silently executed against *this* machine instead — e.g. "open
+# Chrome on my other computer" must never come back "Done" just because
+# a local Chrome/browser action happens to exist.
+#
+# Two shapes, deliberately different: "on (my/another) other computer/pc/
+# laptop/machine/desktop" requires an explicit other/another qualifier —
+# "on my desktop" alone means the Windows desktop folder, not a second
+# machine. "on my phone/tablet" needs no such qualifier — a phone or
+# tablet is inherently a different device from "this PC" regardless of
+# phrasing ("on my phone" is exactly as remote as "on my other phone").
+_REMOTE_DEVICE_RE = re.compile(
+    r"\bon\s+(?:my\s+)?(?:other|another)\s+(?:computer|pc|laptop|machine|desktop|device)\b"
+    r"|\bon\s+(?:my\s+)?(?:phone|tablet)\b",
+    re.IGNORECASE,
+)
+
 _OPEN_APP_RE = re.compile(r"^open\s+(?!(?:the\s+)?(?:latest|newest|oldest)\b)(.+)$", re.IGNORECASE)
 _OPEN_FILE_RE = re.compile(
     r"^open\s+(?:the\s+)?(latest|newest|oldest)\s+(.+)$", re.IGNORECASE
@@ -72,6 +92,16 @@ class IntentInterpreter:
                 )
 
         entities = self._extract_entities(text)
+
+        if _REMOTE_DEVICE_RE.search(text):
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="remote_device_task",
+                object=text,
+                entities=entities,
+                risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
 
         if match := _BROWSER_RE.search(text):
             return StructuredIntent(

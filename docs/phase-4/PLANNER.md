@@ -12,7 +12,10 @@ see `PHASE-4-IMPLEMENTATION-PLAN.md` §8 for the exact, explicit scope.
   as permanent, no retry).
 - **`search_files`** — one `filesystem.search` step per configured
   allowed root (SAFE, no confirmation).
-- **`open_file`** — searches all roots (via an injected `SearchFn`, see
+- **`open_file`** — first checks a `WorkflowMemory` alias (Phase 11,
+  see §2b) for an exact, case-insensitive match on the request's object
+  phrase; if found, resolves straight to that stored path, no search, no
+  ambiguity. Otherwise searches all roots (via an injected `SearchFn`, see
   §2), filters by extension/time constraint, then either:
   - `ordering: "latest"` given explicitly → picks the most recently
     modified candidate deterministically, no question asked (Final
@@ -28,8 +31,25 @@ see `PHASE-4-IMPLEMENTATION-PLAN.md` §8 for the exact, explicit scope.
   `SearchFn` is available) to report *how many* files and their total
   size would have been affected — the brief's own preview spirit (§49),
   without pretending the deletion itself is possible.
-- **`send_file`, `control_device`, `browser_task`** — `CAPABILITY_UNAVAILABLE`
+- **`browser_task`** (Phase 11) — a real, bounded template built on
+  Phase 8's browser tools: always plans `browser.launch`; if the request
+  names a web search ("search the web for X"), also plans
+  `browser.search` (Google/Bing/DuckDuckGo only — `browser.search`'s own
+  supported engines, never a guessed site-specific search URL); always
+  ends with `browser.get_page` to verify the page loaded. See
+  `docs/agent/ORCHESTRATION.md`. Deliberately does *not* preplan
+  multi-step "find and click X" flows — that would mean fabricating a
+  click target this deterministic planner never actually observed.
+- **`send_file`, `control_device`** — `CAPABILITY_UNAVAILABLE`
   immediately, no search, no network scan, no device discovery.
+
+## 2b. `WorkflowMemory` alias resolution (Phase 11)
+
+`MemoryLookupFn = Callable[[str], Awaitable[str | None]]`, injected the
+same way as `SearchFn`. `AgentOrchestrator._make_memory_lookup_fn` reads
+the real `Memory` table (`/memory`'s own rows, category=`WORKFLOW`),
+scoped to the task's user — never a second, parallel alias store. See
+`docs/architecture/09-MEMORY.md` §4 and `docs/agent/ORCHESTRATION.md`.
 
 ## 2. Dependency injection keeps this testable without a real filesystem
 
@@ -52,6 +72,8 @@ deployment, a disabled tool), the template degrades to
 
 ## 4. Verified
 
-12 unit tests (fake registry + fake search) plus every template exercised
-end-to-end for real in `tests/integration/test_agent_tasks_api.py`
-against the actual filesystem sandbox and Tool Registry.
+`tests/unit/test_agent_planner.py` (fake registry + fake search/memory
+functions) plus every template exercised end-to-end for real in
+`tests/integration/test_agent_tasks_api.py` against the actual filesystem
+sandbox, `FakeBrowserAdapter`-backed browser tools, real `/memory` rows,
+and the real Tool Registry.

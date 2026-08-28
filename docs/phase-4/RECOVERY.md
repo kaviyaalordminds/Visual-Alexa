@@ -31,16 +31,31 @@ enum was rejected in favor of extending `ErrorCategory`.
 instead. `LoopBudgetTracker` (see `TASK-ENGINE.md`) is a second,
 independent hard stop across the *whole* run.
 
-## 3. `REPLAN` — implemented as a documented gap, not silently skipped
+## 3. `REPLAN` — real as of Phase 11
 
 `AgentOrchestrator._recover`'s `REPLAN` branch transitions the task to
-`PLANNING` and then honestly reports "Replanning is not yet supported for
-this goal" rather than either crashing or fabricating a fake replan. The
-deterministic templates in Phase 4 rarely need a real replan (an
-`open_file`/`search_files` failure is almost always permanent —
-`FILE_NOT_FOUND`, `PATH_NOT_ALLOWED` — which routes to `ABORT`, not
-`REPLAN`, before this gap is ever reached in practice). See
-`PHASE-4-TEST-RESULTS.md` known limitations.
+`PLANNING` (a legal `RECOVERING -> PLANNING` transition —
+`veyra_contracts._LEGAL_TRANSITIONS`) and re-runs the same deterministic
+`TaskPlanner` against the intent captured at task creation
+(`task.normalized_goal`), with a freshly-called `search`/`memory_lookup`
+so a real replan reflects the *current* state, not a stale one. This
+reuses `_plan_from_intent` — the exact same code path `run()` uses for the
+first plan — so an outcome that turns out `AMBIGUOUS`/`CAPABILITY_
+UNAVAILABLE`/`PLANNED` is handled identically either way, never a second,
+parallel planning branch. Bounded by `TaskBudget.max_replans` both inside
+`RecoveryManager.decide()` and independently by `LoopBudgetTracker`
+(`docs/phase-4/TASK-ENGINE.md`) — once replans are exhausted, the next
+failure escalates to `ASK_USER`, never a silent or crashing failure.
+
+Before Phase 11 this branch was an always-fails stub (see
+`docs/phase-4/PHASE-4-TEST-RESULTS.md` for the real
+`IllegalTaskTransitionError` bug that stub's original version had, caught
+by `tests/integration/test_agent_tasks_api.py::
+test_replan_exhausted_asks_user_never_crashes`, which now also exercises
+the real replan path). `tests/integration/test_agent_tasks_api.py::
+test_replan_recovers_when_the_replanned_attempt_succeeds` proves a replan
+that succeeds actually completes the task through the new plan, not merely
+"doesn't crash."
 
 ## 3b. Phase 8 update — browser errors, classified not duplicated
 

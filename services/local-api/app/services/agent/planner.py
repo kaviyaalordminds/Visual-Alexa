@@ -11,6 +11,7 @@ plan. Never guesses between ambiguous candidates — always defers to
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -46,6 +47,14 @@ implementation that calls `filesystem.search` through the normal
 Policy-Engine-gated path; unit tests supply a fake returning canned
 candidates."""
 
+MemoryLookupFn = Callable[[str], Awaitable[str | None]]
+"""`(alias) -> resolved_path` (or `None` if no matching alias exists).
+docs/architecture/09-MEMORY.md §4 — `WorkflowMemory` alias resolution
+("office folder" -> `D:\\Projects\\Office`): injected the same way as
+`SearchFn` so the planner stays unit-testable without a real Memory table;
+the orchestrator supplies a real implementation backed by `/memory`'s own
+`Memory` rows (category=WORKFLOW), never a second, parallel alias store."""
+
 
 @dataclass
 class PlanOutcome:
@@ -61,10 +70,27 @@ class PlanOutcome:
 _UNAVAILABLE_GOALS: dict[str, str] = {
     "send_file": "Sending files (email/chat/WhatsApp) is not available yet.",
     "control_device": "Smart-device control is not available yet.",
-    "browser_task": "Full browser automation is not available yet.",
     "delete_files": "Deleting files is not available yet — Phase 2 deliberately "
     "has no delete tool (docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md §7).",
+    # docs/security/04-DEVICE-TRUST.md — VEYRA only ever controls this PC.
+    # Never silently substitute a local action for a request that named
+    # another machine/device.
+    "remote_device_task": "Controlling another computer or device is not "
+    "available — VEYRA only controls this PC.",
 }
+
+# Phase 11 — "browser_task" now has a real, bounded planning template
+# (`_plan_browser_task` below) built on Phase 8's already-real Playwright
+# browser tools, so it's no longer in `_UNAVAILABLE_GOALS`. Deliberately
+# narrow: it plans launching a browser and, when the request names a web
+# search, running that search through `browser.search`'s own supported
+# engines — never a multi-site, click-by-guess sequence (e.g. "find and
+# play the first video"), which would mean fabricating a target this
+# deterministic planner never actually observed. That stays a real,
+# already-existing capability the orchestrator can still use step by step
+# (docs/phase-8/BROWSER-TOOLS.md) — just not something this template
+# preplans blindly.
+_WEB_SEARCH_QUERY_RE = re.compile(r"search\s+(?:the\s+)?web\s+(?:for\s+)?(.+)", re.IGNORECASE)
 
 
 class TaskPlanner:
@@ -73,7 +99,11 @@ class TaskPlanner:
         self._search_roots = search_roots or []
 
     async def create_plan(
-        self, intent: StructuredIntent, *, search: SearchFn | None = None
+        self,
+        intent: StructuredIntent,
+        *,
+        search: SearchFn | None = None,
+        memory_lookup: MemoryLookupFn | None = None,
     ) -> PlanOutcome:
         if intent.status == "UNSAFE":
             return PlanOutcome(status="UNSAFE", reason="Request matched a disallowed pattern.")
@@ -107,7 +137,10 @@ class TaskPlanner:
             return self._plan_search_files(intent)
 
         if intent.goal == "open_file":
-            return await self._plan_open_file(intent, search)
+            return await self._plan_open_file(intent, search, memory_lookup)
+
+        if intent.goal == "browser_task":
+            return self._plan_browser_task(intent)
 
         return PlanOutcome(
             status="CAPABILITY_UNAVAILABLE",
@@ -144,6 +177,60 @@ class TaskPlanner:
         ]
         return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
 
+    def _plan_browser_task(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("browser.launch")
+            self._tools.select("browser.get_page")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Launch a browser.",
+                intent=intent.goal,
+                tool_id="browser.launch",
+                # Visible, not headless — the user asked VEYRA to open a
+                # browser, so they expect to see the window it opens.
+                arguments={"headless": False},
+                expected_outcome="A browser session is open.",
+                risk_level=RiskLevel.SAFE,
+            )
+        ]
+
+        query_match = _WEB_SEARCH_QUERY_RE.search(intent.object or "")
+        if query_match:
+            try:
+                self._tools.select("browser.search")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            query = query_match.group(1).strip().rstrip(".")
+            steps.append(
+                PlanStep(
+                    sequence=2,
+                    description=f"Search the web for '{query}'.",
+                    intent=intent.goal,
+                    tool_id="browser.search",
+                    arguments={"query": query, "engine": "google"},
+                    expected_outcome="Search results are loaded.",
+                    risk_level=RiskLevel.SAFE,
+                )
+            )
+
+        steps.append(
+            PlanStep(
+                sequence=len(steps) + 1,
+                description="Observe the loaded page to confirm it's ready.",
+                intent="verify",
+                tool_id="browser.get_page",
+                arguments={},
+                expected_outcome="A semantic observation of the current page is returned.",
+                risk_level=RiskLevel.SAFE,
+                verification_strategy="page_observation",
+            )
+        )
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
     def _plan_search_files(self, intent: StructuredIntent) -> PlanOutcome:
         try:
             self._tools.select("filesystem.search")
@@ -168,12 +255,30 @@ class TaskPlanner:
         return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
 
     async def _plan_open_file(
-        self, intent: StructuredIntent, search: SearchFn | None
+        self,
+        intent: StructuredIntent,
+        search: SearchFn | None,
+        memory_lookup: MemoryLookupFn | None = None,
     ) -> PlanOutcome:
         try:
             self._tools.select("filesystem.open")
         except UnknownToolSelectedError as exc:
             return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+
+        # docs/architecture/09-MEMORY.md §4 — a user-defined WorkflowMemory
+        # alias ("office folder" -> a concrete path) is checked first and,
+        # if found, resolves the target directly: no ambiguity to ask
+        # about, no filesystem search needed, because the user already told
+        # VEYRA exactly what they meant. Falls through to the ordinary
+        # search-based resolution below when no alias matches, never a hard
+        # failure — an alias is an optional shortcut, not a requirement.
+        if memory_lookup is not None:
+            alias = self._alias_query(intent)
+            if alias:
+                resolved_path = await memory_lookup(alias)
+                if resolved_path:
+                    return self._plan_single_file_open(intent, resolved_path)
+
         if search is None:
             return PlanOutcome(
                 status="CAPABILITY_UNAVAILABLE",
@@ -242,6 +347,17 @@ class TaskPlanner:
             if w.lower() not in {"my", "the", "a", "an"}
         ]
         return words[0] if words else None
+
+    def _alias_query(self, intent: StructuredIntent) -> str:
+        """Unlike `_filename_query` (which keeps only the first word — a
+        filename search term), a WorkflowMemory key is the whole phrase the
+        user defined ("office folder", not just "office")."""
+        words = [
+            w
+            for w in (intent.object or "").split()
+            if w.lower() not in {"my", "the", "a", "an"}
+        ]
+        return " ".join(words)
 
     def _time_cutoff(self, intent: StructuredIntent) -> datetime | None:
         constraint = intent.entities.get("time_constraint")

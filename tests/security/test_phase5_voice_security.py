@@ -90,7 +90,7 @@ async def test_6_low_confidence_confirmation_never_authorizes(db_session, fs_san
     never be accepted as authorization for a pending CRITICAL/SENSITIVE
     action, even though the words loosely resemble 'yes'."""
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(
@@ -149,7 +149,7 @@ async def test_9_cancelling_a_paused_task_via_voice_prevents_a_later_yes_from_re
     confirmation is cancelled via a barge-in interruption, a later 'yes'
     must not resume the cancelled task."""
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(
@@ -211,7 +211,7 @@ async def test_11_voice_confirmation_only_ever_grants_allow_once_never_always_al
     The voice layer must never escalate a spoken 'yes' into a standing
     ALWAYS_ALLOW grant — that would be a policy bypass through voice."""
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(
@@ -251,7 +251,7 @@ async def test_12_prompt_injection_style_transcript_does_not_authorize_anything(
     look like an authorization override must still classify as UNCLEAR,
     exactly like any other unrecognized reply."""
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(

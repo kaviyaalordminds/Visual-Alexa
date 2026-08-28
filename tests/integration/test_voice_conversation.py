@@ -15,8 +15,10 @@ import os
 
 from app.models.conversation import Message as MessageRow
 from app.models.task import Task as TaskRow
+from app.models.task import TaskStep as TaskStepRow
 from app.services.voice.register import get_voice_manager
 from sqlalchemy import select
+from veyra_contracts import TaskState
 from voice.core.enums import VoiceState
 
 
@@ -45,16 +47,37 @@ async def test_completed_task_speaks_done(db_session, fs_sandbox):
 async def test_wake_phrase_prefix_does_not_block_intent_understanding(db_session, fs_sandbox):
     """'Hey Veyra, open Chrome' (brief's own first acceptance example) must
     reach the same real planning path 'open Chrome' alone would — the wake
-    phrase is a hearing-layer artifact, not part of the command."""
+    phrase is a hearing-layer artifact, not part of the command.
+
+    'open Chrome' classifies as a `browser_task` intent (matched before
+    `open_application`), which — since Phase 11's real, bounded
+    `browser_task` planning template — genuinely launches a browser
+    against the test environment's `FakeBrowserAdapter` (see
+    tests/conftest.py) rather than coming back `CAPABILITY_UNAVAILABLE`.
+    That the task actually completes is itself the proof the wake phrase
+    didn't block anything — a stronger signal than merely reaching a
+    'not available' answer."""
     session = await _start(db_session)
     result = await get_voice_manager().submit_utterance(
         db_session, session.id, "Hey Veyra, open Chrome"
     )
-    # Chrome isn't a registered application in this test environment, so
-    # the honest outcome is CAPABILITY_UNAVAILABLE — the point under test
-    # is that intent understanding wasn't blocked by the wake phrase, not
-    # that Chrome actually launches.
-    assert "capability" in result.response.text.lower()
+    assert "capability" not in result.response.text.lower()
+    assert session.active_task_id is None  # the task ran to completion, not left waiting
+    task = (
+        await db_session.execute(
+            select(TaskRow).where(TaskRow.conversation_id == session.conversation_id)
+        )
+    ).scalars().first()
+    assert task.state == TaskState.COMPLETED
+    steps = (
+        await db_session.execute(
+            select(TaskStepRow).where(TaskStepRow.task_id == task.id)
+        )
+    ).scalars().all()
+    assert [s.tool_id for s in sorted(steps, key=lambda s: s.step_number)] == [
+        "browser.launch",
+        "browser.get_page",
+    ]
 
 
 async def test_tanglish_folder_example_reaches_real_planning(db_session, fs_sandbox):
@@ -206,7 +229,7 @@ async def test_low_confidence_confirmation_never_authorizes(db_session, fs_sandb
     from app.services.agent.register import get_orchestrator
     from veyra_contracts import ExecutionPlan, PlanStep, RiskLevel
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(
@@ -258,7 +281,7 @@ async def test_live_correction_sentence_denies_a_pending_confirmation(
     from app.services.agent.register import get_orchestrator
     from veyra_contracts import ExecutionPlan, PlanStep, RiskLevel
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(
@@ -295,7 +318,7 @@ async def test_confirmation_denial_via_voice(db_session, fs_sandbox, monkeypatch
     from app.services.agent.register import get_orchestrator
     from veyra_contracts import ExecutionPlan, PlanStep, RiskLevel
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         return PlanOutcome(
             status="PLANNED",
             plan=ExecutionPlan(

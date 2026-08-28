@@ -47,7 +47,7 @@ async def test_hallucinated_tool_is_rejected_never_executed(client, monkeypatch)
     execute; UNKNOWN_TOOL, not a crash, not a silent no-op-success."""
     task = await _create(client, "open my nonexistent-thing")
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         plan = ExecutionPlan(
             goal="adversarial",
             steps=[
@@ -94,7 +94,7 @@ async def test_fake_success_never_overrides_real_tool_failure(client, fs_sandbox
     task's final state is driven only by the real ToolResult."""
     task = await _create(client, "open my definitely-missing-file")
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         plan = ExecutionPlan(
             goal="adversarial",
             steps=[
@@ -130,7 +130,7 @@ async def test_infinite_retry_is_bounded_by_budget_never_hangs(client, monkeypat
         },
     )
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         plan = ExecutionPlan(
             goal="adversarial",
             steps=[
@@ -157,7 +157,7 @@ async def test_cancellation_mid_plan_stops_remaining_steps(client, fs_sandbox, m
     once cancellation is observed."""
     task = await _create(client, "open my multi-step-thing")
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         steps = [
             PlanStep(
                 sequence=i + 1,
@@ -196,7 +196,7 @@ async def test_moderate_action_without_grant_is_denied_not_executed(
     MODERATE step with no PermissionGrant pauses, it does not execute."""
     task = await _create(client, "open my needs-confirmation-thing")
 
-    async def fake_plan(intent, search=None):
+    async def fake_plan(intent, search=None, memory_lookup=None):
         plan = ExecutionPlan(
             goal="adversarial",
             steps=[

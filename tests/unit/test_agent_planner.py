@@ -17,6 +17,9 @@ _KNOWN_TOOLS = (
     "window.get_active",
     "filesystem.search",
     "filesystem.open",
+    "browser.launch",
+    "browser.search",
+    "browser.get_page",
 )
 
 
@@ -179,3 +182,112 @@ async def test_unknown_goal_is_capability_unavailable():
     )
     outcome = await _planner().create_plan(intent)
     assert outcome.status == "CAPABILITY_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_open_file_resolves_a_workflow_memory_alias_without_searching():
+    """docs/architecture/09-MEMORY.md §4 — 'office folder' -> a concrete
+    path, resolved directly with no ambiguity/search step at all. A search
+    function is deliberately provided but never called (asserted below) —
+    an alias match must short-circuit search, not merely take priority
+    over its results."""
+    search_was_called = False
+
+    async def fake_search(directory: str, filename_contains: str | None):
+        nonlocal search_was_called
+        search_was_called = True
+        return []
+
+    async def fake_memory_lookup(alias: str) -> str | None:
+        assert alias == "office folder"
+        return "D:\\Projects\\Office"
+
+    intent = StructuredIntent(
+        raw_request="open my office folder",
+        goal="open_file",
+        object="my office folder",
+        status="UNDERSTOOD",
+    )
+    outcome = await _planner().create_plan(
+        intent, search=fake_search, memory_lookup=fake_memory_lookup
+    )
+    assert outcome.status == "PLANNED"
+    assert outcome.plan.steps[0].tool_id == "filesystem.open"
+    assert outcome.plan.steps[0].arguments["path"] == "D:\\Projects\\Office"
+    assert search_was_called is False
+
+
+@pytest.mark.asyncio
+async def test_browser_task_with_web_search_plans_launch_search_and_observe():
+    intent = StructuredIntent(
+        raw_request="search the web for the latest AI news",
+        goal="browser_task",
+        object="search the web for the latest AI news",
+        status="UNDERSTOOD",
+    )
+    outcome = await _planner().create_plan(intent)
+    assert outcome.status == "PLANNED"
+    assert [s.tool_id for s in outcome.plan.steps] == [
+        "browser.launch",
+        "browser.search",
+        "browser.get_page",
+    ]
+    assert outcome.plan.steps[1].arguments == {
+        "query": "the latest AI news",
+        "engine": "google",
+    }
+    assert outcome.plan.requires_confirmation is False
+
+
+@pytest.mark.asyncio
+async def test_browser_task_without_a_search_query_just_launches_and_observes():
+    intent = StructuredIntent(
+        raw_request="open chrome",
+        goal="browser_task",
+        object="open chrome",
+        status="UNDERSTOOD",
+    )
+    outcome = await _planner().create_plan(intent)
+    assert outcome.status == "PLANNED"
+    assert [s.tool_id for s in outcome.plan.steps] == ["browser.launch", "browser.get_page"]
+
+
+@pytest.mark.asyncio
+async def test_browser_task_is_capability_unavailable_without_browser_tools():
+    intent = StructuredIntent(
+        raw_request="browse the web", goal="browser_task", object="browse", status="UNDERSTOOD"
+    )
+    empty_registry_planner = TaskPlanner(ToolSelector(ToolRegistry()), ["/fake"])
+    outcome = await empty_registry_planner.create_plan(intent)
+    assert outcome.status == "CAPABILITY_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_remote_device_task_is_capability_unavailable():
+    intent = StructuredIntent(
+        raw_request="open Chrome on my other computer",
+        goal="remote_device_task",
+        object="open Chrome on my other computer",
+        status="UNDERSTOOD",
+    )
+    outcome = await _planner().create_plan(intent)
+    assert outcome.status == "CAPABILITY_UNAVAILABLE"
+    assert outcome.plan is None
+
+
+@pytest.mark.asyncio
+async def test_open_file_falls_back_to_search_when_no_alias_matches():
+    async def fake_search(directory: str, filename_contains: str | None):
+        return [FileCandidate(path="/a/notes.txt", name="notes.txt")]
+
+    async def fake_memory_lookup(alias: str) -> str | None:
+        return None
+
+    intent = StructuredIntent(
+        raw_request="open notes", goal="open_file", object="notes", status="UNDERSTOOD"
+    )
+    outcome = await _planner().create_plan(
+        intent, search=fake_search, memory_lookup=fake_memory_lookup
+    )
+    assert outcome.status == "PLANNED"
+    assert outcome.plan.steps[0].arguments["path"] == "/a/notes.txt"

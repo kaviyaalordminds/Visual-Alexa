@@ -90,6 +90,34 @@ def test_adversarial_admin_shell_is_unsafe():
     assert intent.status == "UNSAFE"
 
 
+def test_remote_device_reference_is_never_treated_as_a_local_action():
+    """docs/security/04-DEVICE-TRUST.md — 'Local-only boundary.' Checked
+    before goal classification so a request naming another machine is
+    refused honestly, never silently substituted with a local action of
+    the same shape (e.g. Phase 11's real `browser_task` planning must not
+    quietly open a *local* browser for a request that named a different
+    computer)."""
+    intent = IntentInterpreter().interpret("open Chrome on my other computer")
+    assert intent.goal == "remote_device_task"
+    assert intent.status == "UNDERSTOOD"
+    assert intent.risk_level.value == "SENSITIVE"
+
+
+def test_remote_device_reference_matches_several_phrasings():
+    for phrase in (
+        "open Chrome on my other computer",
+        "search for invoice on another laptop",
+        "open notes on my phone",
+    ):
+        intent = IntentInterpreter().interpret(phrase)
+        assert intent.goal == "remote_device_task", phrase
+
+
+def test_local_browser_request_is_not_misclassified_as_remote():
+    intent = IntentInterpreter().interpret("open Chrome")
+    assert intent.goal == "browser_task"
+
+
 def test_never_executes_anything():
     """IntentInterpreter has no side effects at all — interpreting the
     same request twice is idempotent and produces no observable change."""
