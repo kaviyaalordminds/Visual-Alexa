@@ -21,6 +21,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install tesseract-ocr (services/vision's real OCR backend —
+          tests/unit/test_ocr_engine.py and friends skip-fail without it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
       - name: Install VEYRA Python packages
         run: |
           python3 -m pip install --upgrade pip

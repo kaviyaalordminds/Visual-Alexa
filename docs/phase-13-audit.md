@@ -10,6 +10,16 @@ confirmation UI, and startup ordering. This builds directly on
 rather than re-deriving the whole system from scratch — most of Phase
 13's brief describes capability Phases 1-12 already built for real.
 
+A separate, independent Phase 13 audit session ran concurrently and was
+merged into this branch alongside this one — see
+`docs/phase-13-runtime-validation-audit.md` for its distinct focus (live
+verification of the AI health state machine's four states, the IoT
+discovery-vs-authorization security boundary under a real pairing flow,
+and a real CI gap it found and fixed: `tesseract-ocr` was never
+installed in CI, breaking `services/vision`'s OCR-dependent tests on
+every run). Its findings and this audit's are complementary, not
+conflicting.
+
 ## 1. System health model
 
 **Vocabulary**: current `ComponentStatus` = `CONNECTED, NOT CONFIGURED,
