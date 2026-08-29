@@ -62,6 +62,17 @@ _OPEN_FILE_RE = re.compile(
     r"^open\s+(?:the\s+)?(latest|newest|oldest)\s+(.+)$", re.IGNORECASE
 )
 _SEARCH_RE = re.compile(r"^(?:find|search(?: for)?)\s+(.+)$", re.IGNORECASE)
+# Phase 13 (docs/phase-13-audit.md — one of the spec's five named
+# end-to-end tests, "Create a folder called VEYRA-Test"): the
+# `filesystem.create_folder` tool has been real since Phase 2
+# (docs/phase-2/FILESYSTEM-CONTROL.md), but nothing routed natural-
+# language "create a folder ..." to it — a real, silent capability gap
+# this closes rather than leaving to a false "I don't understand".
+_CREATE_FOLDER_RE = re.compile(
+    r"^(?:create|make)\s+(?:a\s+|an?\s+)?(?:new\s+)?folder\s+"
+    r"(?:called|named)?\s*(.+)$",
+    re.IGNORECASE,
+)
 _DELETE_RE = re.compile(r"^delete\s+(.+)$", re.IGNORECASE)
 _SEND_RE = re.compile(r"^send\s+(.+?)\s+to\s+(.+)$", re.IGNORECASE)
 _DEVICE_RE = re.compile(r"^turn\s+(on|off)\s+(?:the\s+)?(.+)$", re.IGNORECASE)
@@ -130,6 +141,19 @@ class IntentInterpreter:
                 object=match.group(2).strip(),
                 entities={**entities, "power_state": match.group(1).lower()},
                 risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        if match := _CREATE_FOLDER_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="create_folder",
+                object=match.group(1).strip().rstrip("."),
+                entities=entities,
+                # Matches filesystem_tools.py's own real risk_level for
+                # filesystem.create_folder (MODERATE, not SAFE) — a write
+                # to disk, unlike open/search/list.
+                risk_level=RiskLevel.MODERATE,
                 status="UNDERSTOOD",
             )
 

@@ -112,6 +112,52 @@ async def test_grant_scoped_to_a_target_does_not_match_a_different_target(db_ses
 
 
 @pytest.mark.asyncio
+async def test_allow_once_grant_is_consumed_after_a_single_match(db_session):
+    """Live-verification finding (docs/phase-13-audit.md): an ALLOW_ONCE
+    grant is documented as single-use (confirmation_actions.py) but
+    nothing ever revoked it after a match — it silently behaved like
+    ALLOW_SESSION for its whole TTL. A second call for the same
+    tool/target must now be denied again."""
+    user = await get_or_create_local_user(db_session)
+    grant = await _grant(db_session, user.id, scope=PermissionDecision.ALLOW_ONCE)
+
+    first = await policy_engine.evaluate(
+        db_session,
+        user_id=user.id,
+        tool_id="filesystem.move",
+        risk_level=RiskLevel.MODERATE,
+        target=None,
+    )
+    assert first.allowed is True
+    assert first.matched_grant_id == grant.id
+
+    second = await policy_engine.evaluate(
+        db_session,
+        user_id=user.id,
+        tool_id="filesystem.move",
+        risk_level=RiskLevel.MODERATE,
+        target=None,
+    )
+    assert second.allowed is False
+
+
+@pytest.mark.asyncio
+async def test_allow_session_grant_is_reusable_unlike_allow_once(db_session):
+    user = await get_or_create_local_user(db_session)
+    await _grant(db_session, user.id, scope=PermissionDecision.ALLOW_SESSION)
+
+    for _ in range(3):
+        decision = await policy_engine.evaluate(
+            db_session,
+            user_id=user.id,
+            tool_id="filesystem.move",
+            risk_level=RiskLevel.MODERATE,
+            target=None,
+        )
+        assert decision.allowed is True
+
+
+@pytest.mark.asyncio
 async def test_critical_never_satisfied_even_by_always_allow_grant(db_session):
     """docs/security/08-SENSITIVE-ACTION-POLICY.md §2 — the single most
     important security test in this suite: a CRITICAL action must always

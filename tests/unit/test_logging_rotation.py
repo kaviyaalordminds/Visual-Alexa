@@ -60,6 +60,64 @@ def test_log_records_are_actually_written_to_the_file(monkeypatch, tmp_path):
     assert "timestamp" in record
 
 
+def test_extra_fields_survive_into_the_log_line(monkeypatch, tmp_path):
+    """Phase 13 (docs/phase-13-audit.md §5) — real bug: `extra={...}`
+    passed to a log call used to be silently discarded by JSONFormatter.
+    `app/api/tasks.py`'s own `logger.exception(..., extra={"task_id":
+    task_id})` is exactly this real call shape."""
+    monkeypatch.setenv("VEYRA_APP_DATA_DIR", str(tmp_path))
+    configure_logging("INFO")
+
+    logging.getLogger("test").info(
+        "agent.task_run_failed", extra={"task_id": "task-123", "duration": 42}
+    )
+
+    log_file = resolve_log_dir() / "local-api.log"
+    record = json.loads(log_file.read_text().splitlines()[-1])
+    assert record["task_id"] == "task-123"
+    assert record["duration"] == 42
+
+
+def test_extra_fields_that_are_not_json_native_never_crash_logging(monkeypatch, tmp_path):
+    monkeypatch.setenv("VEYRA_APP_DATA_DIR", str(tmp_path))
+    configure_logging("INFO")
+
+    from veyra_contracts import ErrorCategory
+
+    logging.getLogger("test").info("some event", extra={"error_code": ErrorCategory.TIMEOUT})
+
+    log_file = resolve_log_dir() / "local-api.log"
+    record = json.loads(log_file.read_text().splitlines()[-1])
+    assert "TIMEOUT" in record["error_code"]
+
+
+def test_correlation_id_appears_on_log_lines_emitted_while_set(monkeypatch, tmp_path):
+    from app.core.logging import get_correlation_id, reset_correlation_id, set_correlation_id
+
+    monkeypatch.setenv("VEYRA_APP_DATA_DIR", str(tmp_path))
+    configure_logging("INFO")
+
+    assert get_correlation_id() is None
+    token = set_correlation_id("corr-abc")
+    try:
+        logging.getLogger("test").info("inside the scope")
+    finally:
+        reset_correlation_id(token)
+    logging.getLogger("test").info("outside the scope")
+
+    log_file = resolve_log_dir() / "local-api.log"
+    lines = [ln for ln in log_file.read_text().splitlines() if ln]
+    records = [json.loads(ln) for ln in lines]
+    inside = next(r for r in records if r["message"] == "inside the scope")
+    outside = next(r for r in records if r["message"] == "outside the scope")
+    assert inside["correlation_id"] == "corr-abc"
+    # Restored to the prior value (None), not just left stuck at the last
+    # ID ever set — proves reset_correlation_id actually restores scope
+    # rather than merely clearing it.
+    assert outside["correlation_id"] is None
+    assert get_correlation_id() is None
+
+
 def test_configure_logging_never_raises_if_the_log_dir_cannot_be_created(monkeypatch, tmp_path):
     def _boom(*args, **kwargs):
         raise OSError("permission denied (simulated)")

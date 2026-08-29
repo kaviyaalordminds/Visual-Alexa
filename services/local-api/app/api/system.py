@@ -27,14 +27,17 @@ component.
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from computer_control.core.capabilities import detect_capabilities
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from veyra_contracts import EventType
 
 from app.core.config import get_settings
+from app.core.event_bus import event_bus
 from app.core.readiness import uptime_seconds
 from app.core.version import BACKEND_VERSION
 from app.db.session import get_session
@@ -94,6 +97,42 @@ async def _database_is_live(session: AsyncSession) -> bool:
         return False
 
 
+# Phase 13 (docs/phase-13-audit.md §1) — `EventType.SYSTEM_HEALTH_CHANGED`
+# existed since Phase 1 but was never actually published anywhere,
+# confirmed dead. `GET /system` is the one place the full picture is
+# already computed on every call — comparing this call's result against
+# the last one and publishing only the fields that actually changed is a
+# real, cheap way to make that event real without a second, parallel
+# health-polling loop. Process-global like every other "last known state"
+# registry in this codebase (`subsystem_health.py`'s own AI-check cache).
+_last_status_snapshot: dict[str, str] | None = None
+
+# The component fields worth diffing — excludes `details`/`version`/
+# `uptime_seconds`, which change on every single call (uptime) or carry
+# free-text reasons that would make near-every poll "changed."
+_DIFFABLE_FIELDS = (
+    "desktop",
+    "local_api",
+    "database",
+    "ai",
+    "voice",
+    "vision",
+    "computer_control",
+    "browser",
+    "memory",
+    "iot",
+    "security",
+)
+
+
+def reset_last_status_snapshot() -> None:
+    """Test-isolation helper — process-global like every other registry
+    here, so one test's health snapshot must not suppress the next
+    test's first real SYSTEM_HEALTH_CHANGED event."""
+    global _last_status_snapshot
+    _last_status_snapshot = None
+
+
 async def _compute_memory_status(session: AsyncSession, *, database_live: bool) -> SubsystemHealth:
     """PHASE_12_AUDIT.md §3 — `memory` had no field in `/system` at all.
     A real query against the actual `memories` table (not just the
@@ -141,7 +180,7 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
     iot_health = compute_iot_status(device_pairing_service)
     security_active = bool(settings_by_key.get("security.active"))
 
-    return SystemStatus(
+    status = SystemStatus(
         # The desktop shell that calls this endpoint is, by definition,
         # connected if this response is returned to it — same for the
         # Local API process itself (it is the one constructing this
@@ -168,3 +207,21 @@ async def system_status(session: AsyncSession = Depends(get_session)) -> SystemS
         },
         uptime_seconds=uptime_seconds(),
     )
+    await _publish_health_change_if_any(status)
+    return status
+
+
+async def _publish_health_change_if_any(status: SystemStatus) -> None:
+    global _last_status_snapshot
+    snapshot = {field: getattr(status, field) for field in _DIFFABLE_FIELDS}
+    if _last_status_snapshot is not None:
+        changed = {
+            field: {"from": _last_status_snapshot[field], "to": value}
+            for field, value in snapshot.items()
+            if _last_status_snapshot[field] != value
+        }
+        if changed:
+            await event_bus.publish_type(
+                EventType.SYSTEM_HEALTH_CHANGED, str(uuid4()), {"changed": changed}
+            )
+    _last_status_snapshot = snapshot

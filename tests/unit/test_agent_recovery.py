@@ -72,6 +72,20 @@ def test_unknown_tool_never_retried():
     assert decision.strategy == RecoveryStrategy.ABORT
 
 
+def test_permission_denied_aborts_immediately_never_retried():
+    """Live-verification finding (docs/phase-13-audit.md): RecoveryManager
+    only ever sees PERMISSION_DENIED when `user_action_required` was False
+    — the orchestrator's main loop already intercepts a confirmable
+    denial and pauses at WAITING_PERMISSION before RecoveryManager runs
+    at all. What reaches here is always a hard denial (e.g.
+    computer_control disabled) that no amount of retrying fixes."""
+    decision = RecoveryManager().decide(
+        error_code=ErrorCategory.PERMISSION_DENIED, retry_count=0, replan_count=0, budget=_BUDGET
+    )
+    assert decision.strategy == RecoveryStrategy.ABORT
+    assert "not recoverable by retrying" in decision.reason
+
+
 def test_zero_recovery_attempts_budget_immediately_escalates():
     budget = TaskBudget(max_steps=10, timeout_seconds=60, max_recovery_attempts=0, max_replans=0)
     decision = RecoveryManager().decide(

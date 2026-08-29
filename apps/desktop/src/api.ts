@@ -3,8 +3,12 @@ import type {
   DeviceOut,
   HealthResponse,
   IntegrationOut,
+  PermissionDecision,
   PluginOut,
   SystemStatus,
+  TaskBudget,
+  TaskOut,
+  TaskStepOut,
   ToolDefinition,
   ToolResult,
 } from "@veyra/contracts";
@@ -136,4 +140,48 @@ export function listBrowserSessions(): Promise<BrowserSessionInfo[]> {
 
 export function closeBrowserSession(sessionId: string): Promise<ToolResult> {
   return invokeTool("browser.close", {}, sessionId);
+}
+
+// docs/phase-4/TASK-API.md, docs/phase-13-audit.md §8 — the real
+// plan -> execute -> observe -> verify -> recover pipeline, driven the
+// same way any other caller of this API drives it. No shortcut path.
+const DEFAULT_TASK_BUDGET: TaskBudget = {
+  max_steps: 20,
+  timeout_seconds: 120,
+  max_recovery_attempts: 3,
+};
+
+export function listTasks(): Promise<TaskOut[]> {
+  return getJSON<TaskOut[]>("/tasks");
+}
+
+export function getTask(taskId: string): Promise<TaskOut> {
+  return getJSON<TaskOut>(`/tasks/${taskId}`);
+}
+
+export function getTaskSteps(taskId: string): Promise<TaskStepOut[]> {
+  return getJSON<TaskStepOut[]>(`/tasks/${taskId}/steps`);
+}
+
+export async function createAndRunTask(
+  description: string,
+  budget: TaskBudget = DEFAULT_TASK_BUDGET,
+): Promise<TaskOut> {
+  const task = await postJSON<TaskOut>("/tasks", { description, budget });
+  return runTask(task.id);
+}
+
+export function runTask(taskId: string): Promise<TaskOut> {
+  return postJSON<TaskOut>(`/tasks/${taskId}/run`);
+}
+
+export function cancelTask(taskId: string): Promise<TaskOut> {
+  return postJSON<TaskOut>(`/tasks/${taskId}/cancel`);
+}
+
+export function confirmTask(
+  taskId: string,
+  decision: PermissionDecision,
+): Promise<TaskOut> {
+  return postJSON<TaskOut>(`/tasks/${taskId}/confirm`, { decision });
 }

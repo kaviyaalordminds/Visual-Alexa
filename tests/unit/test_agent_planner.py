@@ -17,6 +17,7 @@ _KNOWN_TOOLS = (
     "window.get_active",
     "filesystem.search",
     "filesystem.open",
+    "filesystem.create_folder",
     "browser.launch",
     "browser.search",
     "browser.get_page",
@@ -66,6 +67,41 @@ async def test_search_files_plans_one_step_per_root():
     assert outcome.status == "PLANNED"
     assert len(outcome.plan.steps) == 2
     assert {s.arguments["directory"] for s in outcome.plan.steps} == {"/a", "/b"}
+
+
+@pytest.mark.asyncio
+async def test_create_folder_plans_a_single_verified_step():
+    """Phase 13 (docs/phase-13-audit.md) — one of the spec's five named
+    end-to-end tests, 'Create a folder called VEYRA-Test'."""
+    intent = StructuredIntent(
+        raw_request="Create a folder called VEYRA-Test",
+        goal="create_folder",
+        object="VEYRA-Test",
+        risk_level=RiskLevel.MODERATE,
+        status="UNDERSTOOD",
+    )
+    outcome = await _planner(roots=["/a", "/b"]).create_plan(intent)
+    assert outcome.status == "PLANNED"
+    assert len(outcome.plan.steps) == 1
+    step = outcome.plan.steps[0]
+    assert step.tool_id == "filesystem.create_folder"
+    # The first configured allowed root is the real default location —
+    # same "sandboxed roots" concept _plan_search_files already uses.
+    assert step.arguments == {"parent": "/a", "name": "VEYRA-Test"}
+    assert step.verification_strategy == "filesystem_state_detection"
+
+
+@pytest.mark.asyncio
+async def test_create_folder_is_capability_unavailable_without_the_tool():
+    intent = StructuredIntent(
+        raw_request="Create a folder called X",
+        goal="create_folder",
+        object="X",
+        status="UNDERSTOOD",
+    )
+    empty_registry_planner = TaskPlanner(ToolSelector(ToolRegistry()), ["/a"])
+    outcome = await empty_registry_planner.create_plan(intent)
+    assert outcome.status == "CAPABILITY_UNAVAILABLE"
 
 
 @pytest.mark.asyncio

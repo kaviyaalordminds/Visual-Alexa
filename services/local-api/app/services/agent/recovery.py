@@ -35,6 +35,20 @@ _PERMANENT_CATEGORIES = frozenset(
         ErrorCategory.FILE_NOT_FOUND,
         ErrorCategory.PLATFORM_NOT_SUPPORTED,
         ErrorCategory.TOOL_DISABLED,
+        # Phase 13 (live-verification finding, docs/phase-13-audit.md) —
+        # RecoveryManager only ever sees PERMISSION_DENIED when
+        # `user_action_required` was False: the orchestrator's main loop
+        # already intercepts a confirmable denial and pauses at
+        # WAITING_PERMISSION *before* RecoveryManager is consulted at
+        # all (orchestrator.py's `_execute_plan`). What reaches here is
+        # therefore always a hard, non-confirmable denial (e.g.
+        # `computer_control.enabled` is off) — retrying or replanning
+        # can never fix that; only a user action outside this task can.
+        # Previously fell through to the generic "not a recognized
+        # recoverable category" ABORT, a confusing internal-sounding
+        # `failure_reason` for what is actually an ordinary, expected
+        # denial.
+        ErrorCategory.PERMISSION_DENIED,
         ErrorCategory.UNKNOWN_TOOL,
         ErrorCategory.CAPABILITY_UNAVAILABLE,
         ErrorCategory.PATH_NOT_ALLOWED,

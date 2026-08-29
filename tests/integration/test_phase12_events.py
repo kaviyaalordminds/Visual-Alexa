@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
+from app.api.tasks import _background_tasks
 from app.core.event_bus import event_bus
 from app.services.browser.adapter import RawElement
 from app.services.browser.manager import browser_manager
@@ -22,6 +23,16 @@ async def _drain(queue):
     while not queue.empty():
         events.append(queue.get_nowait())
     return events
+
+
+async def _drain_background_tasks(timeout_seconds: float = 5.0) -> None:
+    """Mirrors test_agent_tasks_api.py's own helper — a `/run`/`/confirm`
+    background task still in flight when a test ends can hold a real
+    SQLite write lock past this test's own event loop, racing the next
+    test's fixture (`DROP TABLE`). Draining here closes that race."""
+    deadline = asyncio.get_event_loop().time() + timeout_seconds
+    while _background_tasks and asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(0.01)
 
 
 def _types(events):
@@ -375,12 +386,12 @@ async def test_confirmation_denial_publishes_permission_denied(client, fs_sandbo
     task_id = create.json()["id"]
     await client.post(f"/tasks/{task_id}/run")
 
-
     for _ in range(200):
         state = (await client.get(f"/tasks/{task_id}")).json()["state"]
         if state == "WAITING_PERMISSION":
             break
         await asyncio.sleep(0.02)
+    await _drain_background_tasks()
 
     queue = await event_bus.subscribe()
     try:
@@ -391,6 +402,7 @@ async def test_confirmation_denial_publishes_permission_denied(client, fs_sandbo
         assert len(denied) == 1
     finally:
         await event_bus.unsubscribe(queue)
+    await _drain_background_tasks()
 
 
 async def test_step_level_permission_pause_publishes_permission_requested(
@@ -399,7 +411,7 @@ async def test_step_level_permission_pause_publishes_permission_requested(
     from app.services.agent.orchestrator import AgentOrchestrator, ToolResultStatus
     from veyra_contracts import ErrorCategory, ErrorInfo, ToolResult
 
-    async def denies_with_confirmation(self, session, task, tool_id, arguments):
+    async def denies_with_confirmation(self, session, task, tool_id, arguments, **_ignored):
         return ToolResult(
             call_id="test-call",
             status=ToolResultStatus.FAILURE,
@@ -437,6 +449,7 @@ async def test_step_level_permission_pause_publishes_permission_requested(
             if state == "WAITING_PERMISSION":
                 break
             await asyncio.sleep(0.02)
+        await _drain_background_tasks()
 
         events = await _drain(queue)
         requested = [e for e in events if e.type == EventType.PERMISSION_REQUESTED]

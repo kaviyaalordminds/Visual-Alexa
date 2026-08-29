@@ -36,6 +36,7 @@ os.environ["VEYRA_FILESYSTEM_ALLOWED_ROOTS"] = json.dumps([_TMP_FS_ROOT])
 _TMP_BROWSER_DOWNLOADS_DIR = tempfile.mkdtemp(prefix="veyra-browser-downloads-")
 os.environ["VEYRA_BROWSER_DOWNLOADS_DIR"] = _TMP_BROWSER_DOWNLOADS_DIR
 
+from app.api.system import reset_last_status_snapshot
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.seed_defaults import DEFAULT_SETTINGS
@@ -58,6 +59,7 @@ from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools, reset_mock_ac_state
 from app.services.reference_integration import build_reference_integration_bundle
 from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
+from app.services.tool_execution import reset_idempotency_cache
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
 from app.services.voice.register import init_voice_manager
@@ -104,6 +106,8 @@ async def _reset_state(request):
     # a previous test must not leak into this one.
     device_pairing_service.reset_permission_cache()
     reset_mock_ac_state()
+    reset_idempotency_cache()
+    reset_last_status_snapshot()
     for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
         tool_registry.register(mock_definition, mock_executor)
 

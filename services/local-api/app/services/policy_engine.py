@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from veyra_contracts import RiskLevel
+from veyra_contracts import PermissionDecision, RiskLevel
 
 from app.models.tool import PermissionGrant as PermissionGrantRow
 
@@ -81,6 +81,21 @@ class PolicyEngine:
             expires_at = _as_aware_utc(grant.expires_at)
             if expires_at is not None and expires_at <= now:
                 continue
+            if grant.scope == PermissionDecision.ALLOW_ONCE:
+                # Phase 13 (live-verification finding, docs/phase-13-
+                # audit.md) — an ALLOW_ONCE grant was created with the
+                # documented intent of authorizing exactly one attempt
+                # (see confirmation_actions.py's own comment: "single-
+                # use... never a standing ALWAYS_ALLOW"), but nothing
+                # ever revoked it after a match — it silently behaved
+                # identically to ALLOW_SESSION for its whole TTL window.
+                # Consuming it here, at the moment it satisfies a check,
+                # is what actually makes "once" mean once; whoever calls
+                # this (tool_execution.py) commits the session afterward
+                # regardless of whether the tool call itself goes on to
+                # succeed — the authorization was for one *attempt*, not
+                # contingent on that attempt's own outcome.
+                grant.revoked_at = now
             return PolicyDecision(
                 allowed=True,
                 requires_confirmation=False,

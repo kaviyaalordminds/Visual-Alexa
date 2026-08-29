@@ -6,6 +6,7 @@ takes. docs/security/01-SECURITY-ARCHITECTURE.md §1 (the core chain).
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,7 @@ from veyra_contracts import (
 )
 
 from app.core.event_bus import event_bus
+from app.core.logging import reset_correlation_id, set_correlation_id
 from app.services.audit import write_audit_log
 from app.services.policy_engine import PolicyDecision, policy_engine
 from app.services.tool_registry import ToolRegistry
@@ -37,7 +39,99 @@ class ExecutionOutcome:
     policy_decision: PolicyDecision
 
 
+# Phase 13 (docs/phase-13-audit.md §4) — a real idempotency mechanism.
+# `ToolCallRequest.call_id` already defaults to a fresh UUID per call, so
+# by construction this cache only ever hits when a *caller* deliberately
+# reuses a call_id across attempts — the common case (a fresh call_id
+# every time) is unaffected. `AgentOrchestrator` is the one caller that
+# does this deliberately, for a step being retried by `RecoveryManager`
+# (see orchestrator.py's `_step_call_id`) — so that a retry after a
+# transient failure (e.g. the underlying action actually succeeded but
+# the response was lost) replays the cached result instead of executing
+# the action a second time. Bounded like every other in-memory registry
+# in this codebase (LoopBudgetTracker, the cancellation/pause event
+# dicts): a TTL plus a max size with oldest-first eviction, never
+# unbounded growth.
+_IDEMPOTENCY_CACHE_TTL_SECONDS = 300
+_IDEMPOTENCY_CACHE_MAX_SIZE = 500
+
+
+@dataclass
+class _CachedOutcome:
+    outcome: ExecutionOutcome
+    cached_at: float
+
+
+_idempotency_cache: dict[str, _CachedOutcome] = {}
+
+
+def _idempotency_cache_get(call_id: str) -> ExecutionOutcome | None:
+    entry = _idempotency_cache.get(call_id)
+    if entry is None:
+        return None
+    if time.monotonic() - entry.cached_at > _IDEMPOTENCY_CACHE_TTL_SECONDS:
+        _idempotency_cache.pop(call_id, None)
+        return None
+    return entry.outcome
+
+
+def _idempotency_cache_put(call_id: str, outcome: ExecutionOutcome) -> None:
+    if len(_idempotency_cache) >= _IDEMPOTENCY_CACHE_MAX_SIZE:
+        oldest_key = min(_idempotency_cache, key=lambda k: _idempotency_cache[k].cached_at)
+        _idempotency_cache.pop(oldest_key, None)
+    _idempotency_cache[call_id] = _CachedOutcome(outcome=outcome, cached_at=time.monotonic())
+
+
+def reset_idempotency_cache() -> None:
+    """Test-isolation helper — process-global like every other registry
+    here (device_pairing's permission cache, tool_registry), so one
+    test's cached call_id must not leak into the next."""
+    _idempotency_cache.clear()
+
+
 async def execute_tool_call(
+    session: AsyncSession,
+    registry: ToolRegistry,
+    *,
+    call: ToolCallRequest,
+    user_id: str,
+) -> ExecutionOutcome:
+    # Phase 13 (docs/phase-13-audit.md §5) — this is the single chokepoint
+    # every tool call takes (orchestrator-driven or a direct
+    # POST /tools/{id}/invoke alike), so it's the one real place to make
+    # every log line emitted for the duration of this call carry the
+    # call's own correlation_id — restored to whatever was in scope
+    # before on the way out, never just cleared to None (correct for a
+    # call nested inside a larger correlation_id'd scope, e.g. a future
+    # caller that sets one of its own before invoking this).
+    token = set_correlation_id(call.correlation_id)
+    try:
+        cached = _idempotency_cache_get(call.call_id)
+        if cached is not None:
+            logger.info(
+                "[VEYRA] tool_execution: idempotent replay for call_id=%s (tool=%s) — "
+                "returning the cached result instead of re-executing.",
+                call.call_id,
+                call.tool_id,
+            )
+            return cached
+        outcome = await _execute_tool_call_uncached(session, registry, call=call, user_id=user_id)
+        # Only a genuine SUCCESS is cached. A failure means (as far as
+        # this process can tell) the real action never took effect, so a
+        # retry with the same call_id must genuinely re-attempt it —
+        # caching failures too would turn every transient error into a
+        # permanent one, defeating RecoveryManager's own RETRY strategy.
+        # Caching only successes is exactly the "don't double-send after
+        # the response was lost but the action went through" case
+        # Phase 13 §28 describes.
+        if outcome.result.status == ToolResultStatus.SUCCESS:
+            _idempotency_cache_put(call.call_id, outcome)
+        return outcome
+    finally:
+        reset_correlation_id(token)
+
+
+async def _execute_tool_call_uncached(
     session: AsyncSession,
     registry: ToolRegistry,
     *,

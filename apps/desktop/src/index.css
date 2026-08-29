@@ -310,7 +310,75 @@ h1 {
   cursor: default;
 }
 
+.platform-panel form button {
+  background: #7aa2f7;
+  color: #0f1115;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.platform-panel form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.platform-panel form input {
+  background: #171a21;
+  border: 1px solid #262b36;
+  color: #e6e8eb;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-family: inherit;
+}
+
 .platform-permissions {
   color: #9aa3b2;
   font-size: 0.75rem;
+}
+
+/* Phase 13 (docs/phase-13-audit.md §8) — TaskPanel.tsx, same
+   .platform-panel spirit as the sections above. */
+.task-current {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.task-current button {
+  background: #7aa2f7;
+  color: #0f1115;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-current button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.task-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #e0af68;
+  border-radius: 8px;
+  background: rgba(224, 175, 104, 0.08);
+}
+
+.task-confirmation p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.task-confirmation button {
+  align-self: flex-start;
 }

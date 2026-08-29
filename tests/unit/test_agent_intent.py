@@ -13,6 +13,23 @@ def test_open_application_understood():
     assert intent.object == "Notepad"
 
 
+def test_create_folder_understood():
+    """Phase 13 (docs/phase-13-audit.md) — one of the spec's five named
+    end-to-end tests, 'Create a folder called VEYRA-Test'."""
+    intent = IntentInterpreter().interpret("Create a folder called VEYRA-Test")
+    assert intent.status == "UNDERSTOOD"
+    assert intent.goal == "create_folder"
+    assert intent.object == "VEYRA-Test"
+    assert intent.risk_level.value == "MODERATE"
+
+
+def test_create_folder_matches_make_and_named_phrasing_too():
+    intent = IntentInterpreter().interpret("Make a new folder named Reports")
+    assert intent.status == "UNDERSTOOD"
+    assert intent.goal == "create_folder"
+    assert intent.object == "Reports"
+
+
 def test_open_file_with_latest_ordering_understood():
     intent = IntentInterpreter().interpret("Open the latest PDF in Downloads.")
     assert intent.status == "UNDERSTOOD"

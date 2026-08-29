@@ -94,6 +94,38 @@ async def test_search_files_completes_for_real(client, fs_sandbox):
     assert steps[0]["state"] == "COMPLETED"
 
 
+async def test_create_folder_completes_for_real(client, fs_sandbox):
+    """Phase 13 (docs/phase-13-audit.md) — one of the spec's five named
+    end-to-end tests, 'Create a folder called VEYRA-Test', driven through
+    the real intent/planner/orchestrator/tool-execution chain end to end,
+    no monkeypatched plan. filesystem.create_folder is MODERATE risk, so
+    with no pre-existing grant it correctly pauses at WAITING_PERMISSION
+    first (docs/phase-4/CONFIRMATION.md) — real security, not skipped."""
+    task = await _create(client, "Create a folder called VEYRA-Test")
+    waiting = await _run_and_wait(client, task["id"])
+    assert waiting["state"] == "WAITING_PERMISSION"
+    assert "confirmation_prompt" in waiting["result"]
+    assert not os.path.isdir(os.path.join(fs_sandbox, "VEYRA-Test"))
+
+    confirm_resp = await client.post(
+        f"/tasks/{task['id']}/confirm", json={"decision": "ALLOW_ONCE"}
+    )
+    assert confirm_resp.status_code == 200
+    final = await _wait_for_terminal(
+        client, task["id"], leaving_state="WAITING_PERMISSION"
+    )
+    assert final["state"] == "COMPLETED"
+    steps = (await client.get(f"/tasks/{task['id']}/steps")).json()
+    # Resuming after a confirmation records a fresh step row for the
+    # actual (now-authorized) attempt — the original row stays at
+    # WAITING_PERMISSION as the honest record of what happened before
+    # the pause, matching test_confirmation_pause_and_resume's own
+    # behavior above.
+    assert all(s["tool_id"] == "filesystem.create_folder" for s in steps)
+    assert steps[-1]["state"] == "COMPLETED"
+    assert os.path.isdir(os.path.join(fs_sandbox, "VEYRA-Test"))
+
+
 async def test_open_file_single_match_completes_or_fails_honestly(client, fs_sandbox):
     """The open step itself may fail on this host (no xdg-open) — what
     matters is the target was found unambiguously and the tool was
@@ -278,7 +310,7 @@ async def test_replan_exhausted_asks_user_never_crashes(client, monkeypatch):
     correctly falls through to ASK_USER rather than crashing or silently
     failing."""
 
-    async def always_times_out(self, session, task, tool_id, arguments):
+    async def always_times_out(self, session, task, tool_id, arguments, **_ignored):
         return ToolResult(
             call_id="test-call",
             status=ToolResultStatus.FAILURE,
@@ -321,7 +353,7 @@ async def test_replan_recovers_when_the_replanned_attempt_succeeds(client, fs_sa
     call_count = 0
     real_call_tool = AgentOrchestrator._call_tool
 
-    async def fails_once_then_real(self, session, task, tool_id, arguments):
+    async def fails_once_then_real(self, session, task, tool_id, arguments, **_ignored):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -383,6 +415,102 @@ async def test_workflow_memory_alias_resolves_a_real_open_task(client, fs_sandbo
     assert steps[0]["arguments"]["path"] == fs_sandbox
     assert final["state"] in ("COMPLETED", "FAILED")  # the open itself may fail on this host
     assert all(s["tool_id"] != "filesystem.search" for s in steps)
+
+
+async def test_step_retry_reuses_the_same_call_id_as_the_original_attempt(client, monkeypatch):
+    """Phase 13 (docs/phase-13-audit.md §4) — a retried step must be a
+    real idempotent replay opportunity, not a brand-new, unrelated call:
+    `_call_tool`'s own `call_id` argument must be identical across the
+    first attempt and every RecoveryManager retry of the same step."""
+    seen_call_ids: list[str | None] = []
+    real_call_tool = AgentOrchestrator._call_tool
+    attempt = 0
+
+    async def spy_call_tool(self, session, task, tool_id, arguments, *, call_id=None):
+        nonlocal attempt
+        attempt += 1
+        seen_call_ids.append(call_id)
+        if attempt == 1:
+            return ToolResult(
+                call_id="test-call",
+                status=ToolResultStatus.FAILURE,
+                error=ErrorInfo(
+                    code=ErrorCategory.TIMEOUT,
+                    message="simulated transient timeout",
+                    retryable=True,
+                    correlation_id=task.correlation_id,
+                ),
+                duration_ms=1,
+            )
+        return await real_call_tool(self, session, task, tool_id, arguments, call_id=call_id)
+
+    monkeypatch.setattr(AgentOrchestrator, "_call_tool", spy_call_tool)
+
+    task = await _create(
+        client,
+        "search for invoice",
+        budget={
+            "max_steps": 10,
+            "timeout_seconds": 30,
+            "max_recovery_attempts": 1,
+            "max_replans": 1,
+        },
+    )
+    final = await _run_and_wait(client, task["id"])
+    assert final["state"] == "COMPLETED"
+    assert len(seen_call_ids) == 2
+    assert seen_call_ids[0] is not None
+    assert seen_call_ids[0] == seen_call_ids[1]
+
+
+async def test_recovery_attempts_are_persisted_on_the_task_row(client, db_session, monkeypatch):
+    """Phase 13 (docs/phase-13-audit.md §2) — `TaskContext.retry_count`/
+    `replan_count` were tracked correctly throughout a run but silently
+    lost the moment a task reached a terminal state. Force one retry
+    (TIMEOUT is retryable) then let the task complete for real; the
+    final row must still show how much recovery it took. `extra_metadata`
+    isn't on the `TaskOut` API response shape, so this reads the DB row
+    directly — a real persistence check, not a response-shape one."""
+    from app.models.task import Task as TaskRow
+
+    real_call_tool = AgentOrchestrator._call_tool
+    attempt = 0
+
+    async def fails_once_then_real(self, session, task, tool_id, arguments, **kwargs):
+        nonlocal attempt
+        attempt += 1
+        if attempt == 1:
+            return ToolResult(
+                call_id="test-call",
+                status=ToolResultStatus.FAILURE,
+                error=ErrorInfo(
+                    code=ErrorCategory.TIMEOUT,
+                    message="simulated transient timeout",
+                    retryable=True,
+                    correlation_id=task.correlation_id,
+                ),
+                duration_ms=1,
+            )
+        return await real_call_tool(self, session, task, tool_id, arguments, **kwargs)
+
+    monkeypatch.setattr(AgentOrchestrator, "_call_tool", fails_once_then_real)
+
+    task = await _create(
+        client,
+        "search for invoice",
+        budget={
+            "max_steps": 10,
+            "timeout_seconds": 30,
+            "max_recovery_attempts": 1,
+            "max_replans": 1,
+        },
+    )
+    final = await _run_and_wait(client, task["id"])
+    assert final["state"] == "COMPLETED"
+
+    row = await db_session.get(TaskRow, task["id"])
+    assert row.extra_metadata["retry_count"] == 1
+    assert row.extra_metadata["replan_count"] == 0
 
 
 async def test_browser_task_search_completes_for_real(client):

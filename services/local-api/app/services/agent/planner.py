@@ -142,6 +142,9 @@ class TaskPlanner:
         if intent.goal == "browser_task":
             return self._plan_browser_task(intent)
 
+        if intent.goal == "create_folder":
+            return self._plan_create_folder(intent)
+
         return PlanOutcome(
             status="CAPABILITY_UNAVAILABLE",
             reason=f"No planning template exists for goal '{intent.goal}'.",
@@ -252,6 +255,36 @@ class TaskPlanner:
             return PlanOutcome(
                 status="CAPABILITY_UNAVAILABLE", reason="No searchable location is configured."
             )
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_create_folder(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("filesystem.create_folder")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        if not self._search_roots:
+            return PlanOutcome(
+                status="CAPABILITY_UNAVAILABLE", reason="No writable location is configured."
+            )
+        # Same sandboxed-roots concept `_plan_search_files` already uses
+        # (docs/phase-2/FILESYSTEM-CONTROL.md) — the first configured
+        # allowed root is the default location when the request doesn't
+        # name one. A location-aware default ("in Downloads") is real
+        # future work, not attempted here.
+        parent = self._search_roots[0]
+        name = (intent.object or "").strip()
+        steps = [
+            PlanStep(
+                sequence=1,
+                description=f"Create folder '{name}' in '{parent}'.",
+                intent=intent.goal,
+                tool_id="filesystem.create_folder",
+                arguments={"parent": parent, "name": name},
+                expected_outcome="The folder exists on disk.",
+                risk_level=RiskLevel.MODERATE,
+                verification_strategy="filesystem_state_detection",
+            )
+        ]
         return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
 
     async def _plan_open_file(

@@ -20,6 +20,9 @@ export type ToolCategory =
   | "iot"
   | "custom";
 
+// docs/security/02-PERMISSION-MODEL.md
+export type PermissionDecision = "ALLOW_ONCE" | "ALLOW_SESSION" | "ALWAYS_ALLOW" | "DENY" | "CANCEL";
+
 export type TaskState =
   | "RECEIVED"
   | "UNDERSTANDING"

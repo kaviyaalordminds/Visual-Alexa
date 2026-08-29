@@ -90,6 +90,21 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _record_recovery_attempts(task: TaskRow, context: TaskContext) -> None:
+    """Phase 13 (docs/phase-13-audit.md §2) — `TaskContext.retry_count`/
+    `replan_count` were tracked correctly throughout a run but never
+    persisted, so they were silently lost the moment a task reached a
+    terminal state. Called at every terminal transition (success,
+    `_fail`, `_timeout`) so a completed task's row itself answers "how
+    much recovery did this actually take," not just its live in-memory
+    state during the run."""
+    task.extra_metadata = {
+        **(task.extra_metadata or {}),
+        "retry_count": context.retry_count,
+        "replan_count": context.replan_count,
+    }
+
+
 class AgentOrchestrator:
     def __init__(self, registry: ToolRegistry, search_roots: list[str]) -> None:
         self._registry = registry
@@ -143,7 +158,12 @@ class AgentOrchestrator:
 
         if intent.status != "UNDERSTOOD":
             await self._fail_at_planning(
-                session, sm, task, ErrorCategory.PERMISSION_DENIED, "Request was classified UNSAFE."
+                session,
+                sm,
+                task,
+                ErrorCategory.PERMISSION_DENIED,
+                "Request was classified UNSAFE.",
+                context,
             )
             return
 
@@ -192,7 +212,9 @@ class AgentOrchestrator:
                 "UNSAFE": ErrorCategory.PERMISSION_DENIED,
                 "INVALID": ErrorCategory.INVALID_PLAN,
             }[outcome.status]
-            await self._fail_at_planning(session, sm, task, code, outcome.reason or outcome.status)
+            await self._fail_at_planning(
+                session, sm, task, code, outcome.reason or outcome.status, context
+            )
             return
 
         plan = outcome.plan
@@ -296,10 +318,12 @@ class AgentOrchestrator:
                 return
             budget_reason = tracker.budget_exceeded_reason()
             if budget_reason:
-                await self._timeout(session, sm, task, budget_reason)
+                await self._timeout(session, sm, task, budget_reason, context)
                 return
             if tracker.record_call_and_check_loop(step.tool_id, step.arguments):
-                await self._timeout(session, sm, task, f"Loop detected repeating '{step.tool_id}'.")
+                await self._timeout(
+                    session, sm, task, f"Loop detected repeating '{step.tool_id}'.", context
+                )
                 return
 
             tracker.record_step()
@@ -325,7 +349,13 @@ class AgentOrchestrator:
                 EventType.TASK_STEP_STARTED, task.correlation_id, {"step": step.sequence}
             )
 
-            result = await self._call_tool(session, task, step.tool_id, step.arguments)
+            result = await self._call_tool(
+                session,
+                task,
+                step.tool_id,
+                step.arguments,
+                call_id=self._step_call_id(task.id, step.sequence),
+            )
             step_row.actual_result = result.model_dump(mode="json") if result else None
             step_row.completed_at = _now()
 
@@ -339,6 +369,7 @@ class AgentOrchestrator:
                     sm,
                     task,
                     "Planned tool is not registered.",
+                    context,
                     code=ErrorCategory.UNKNOWN_TOOL,
                 )
                 return
@@ -422,6 +453,7 @@ class AgentOrchestrator:
 
         task.completed_at = _now()
         task.result = {"outcome": "success"}
+        _record_recovery_attempts(task, context)
         sm.transition(TaskState.OBSERVING)
         await self._save(session, task)
         sm.transition(TaskState.VERIFYING)
@@ -471,7 +503,17 @@ class AgentOrchestrator:
             sm.transition(TaskState.EXECUTING)
             await self._save(session, task)
             await event_bus.publish_type(EventType.TASK_RECOVERY_COMPLETED, task.correlation_id)
-            result = await self._call_tool(session, task, step.tool_id, step.arguments)
+            # Same stable call_id as the original attempt (docs/
+            # phase-13-audit.md §4) — if the underlying action actually
+            # succeeded despite the client-visible failure, this retry
+            # replays the cached success instead of executing it twice.
+            result = await self._call_tool(
+                session,
+                task,
+                step.tool_id,
+                step.arguments,
+                call_id=self._step_call_id(task.id, step.sequence),
+            )
             if result is not None and result.status == ToolResultStatus.SUCCESS:
                 context.record_step(
                     StepRecord(
@@ -492,7 +534,7 @@ class AgentOrchestrator:
             tracker.record_replan()
             budget_reason = tracker.budget_exceeded_reason()
             if budget_reason:
-                await self._timeout(session, sm, task, budget_reason)
+                await self._timeout(session, sm, task, budget_reason, context)
                 return False
 
             # Real replanning: re-run the deterministic planner against the
@@ -516,6 +558,7 @@ class AgentOrchestrator:
                     sm,
                     task,
                     "Replanning failed: no understood intent is available to replan from.",
+                    context,
                     code=ErrorCategory.INVALID_PLAN,
                 )
                 return False
@@ -532,20 +575,44 @@ class AgentOrchestrator:
             await self._wait_for_user(session, sm, task, question, "recovery")
             return False
 
-        await self._fail(session, sm, task, decision.reason, code=error_code)
+        await self._fail(session, sm, task, decision.reason, context, code=error_code)
         return False
 
-    async def _call_tool(self, session: AsyncSession, task: TaskRow, tool_id: str, arguments: dict):
+    async def _call_tool(
+        self,
+        session: AsyncSession,
+        task: TaskRow,
+        tool_id: str,
+        arguments: dict,
+        *,
+        call_id: str | None = None,
+    ):
         if not self._tool_selector.exists(tool_id):
             return None
+        # Phase 13 (docs/phase-13-audit.md §4) — a caller passes a stable
+        # call_id (see `_step_call_id`) only when it wants this specific
+        # invocation to be a real idempotent replay of an earlier one
+        # (a step being retried); every other caller (e.g.
+        # `_make_search_fn`'s exploratory searches during planning) omits
+        # it and gets a fresh, never-colliding one from `ToolCallRequest`'s
+        # own default, exactly as before this phase.
+        extra = {"call_id": call_id} if call_id is not None else {}
         call = ToolCallRequest(
             tool_id=tool_id,
             target=arguments.get("path") or arguments.get("application"),
             arguments=arguments,
             correlation_id=task.correlation_id,
+            **extra,
         )
         outcome = await execute_tool_call(session, self._registry, call=call, user_id=task.user_id)
         return outcome.result
+
+    @staticmethod
+    def _step_call_id(task_id: str, sequence: int) -> str:
+        """Deterministic and stable across every attempt of the same
+        step (first try + every RecoveryManager retry) — never reused
+        across a different step or a different task."""
+        return f"{task_id}:step:{sequence}"
 
     def _make_search_fn(self, session: AsyncSession, task: TaskRow):
         async def _search(directory: str, filename_contains: str | None):
@@ -629,6 +696,7 @@ class AgentOrchestrator:
         task: TaskRow,
         code: ErrorCategory,
         reason: str,
+        context: TaskContext,
     ) -> None:
         # Same race as run()'s old WAITING_PERMISSION->EXECUTING pair: the
         # state machine only allows PLANNING to exit via WAITING_PERMISSION
@@ -642,7 +710,7 @@ class AgentOrchestrator:
         # _fail()-owned _save() below makes WAITING_PERMISSION unobservable
         # here too, exactly as in run().
         sm.transition(TaskState.WAITING_PERMISSION)
-        await self._fail(session, sm, task, reason, code=code)
+        await self._fail(session, sm, task, reason, context, code=code)
 
     async def _fail(
         self,
@@ -650,20 +718,25 @@ class AgentOrchestrator:
         sm: TaskStateMachine,
         task: TaskRow,
         reason: str,
+        context: TaskContext,
         code: ErrorCategory | None = None,
     ) -> None:
         sm.transition(TaskState.FAILED)
         task.completed_at = _now()
         task.failure_reason = reason
         task.failure_category = code
+        _record_recovery_attempts(task, context)
         await self._save(session, task)
         await event_bus.publish_type(EventType.TASK_FAILED, task.correlation_id, {"reason": reason})
         _clear_cancellation(task.id)
 
-    async def _timeout(self, session, sm: TaskStateMachine, task: TaskRow, reason: str) -> None:
+    async def _timeout(
+        self, session, sm: TaskStateMachine, task: TaskRow, reason: str, context: TaskContext
+    ) -> None:
         sm.transition(TaskState.TIMED_OUT)
         task.completed_at = _now()
         task.failure_reason = reason
+        _record_recovery_attempts(task, context)
         await self._save(session, task)
         await event_bus.publish_type(
             EventType.TASK_TIMED_OUT, task.correlation_id, {"reason": reason}
