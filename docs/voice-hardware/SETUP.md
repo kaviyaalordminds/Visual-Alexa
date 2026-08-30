@@ -55,7 +55,7 @@ bundles PortAudio, so no separate system install is required there. On
 Linux, `sounddevice` additionally needs the `libportaudio2` system
 package (`apt-get install -y libportaudio2`).
 
-## 2. Wake word — pick a bundled phrase
+## 2. Wake word — bundled phrase or custom "Hey VEYRA"
 
 openWakeWord ships small pretrained models inside the package itself —
 no download needed for these:
@@ -67,13 +67,43 @@ no download needed for these:
 | `hey_mycroft` | "Hey Mycroft" |
 | `hey_rhasspy` | "Hey Rhasspy" |
 
-**A custom "Hey VEYRA" model is real future work, not shipped here** —
-openWakeWord's own training notebook
-(https://github.com/dscripka/openWakeWord, "Custom Verification
-Models") walks through training one from a small set of recorded/
-synthesized samples of the phrase. Once you have a `.onnx` file, point
-`VEYRA_WAKE_WORD_MODEL` at its path instead of a bundled name (the code
-already accepts either — see `OpenWakeWordDetector`).
+### Training a custom "Hey VEYRA" model
+
+A training script is included — `scripts/train_hey_veyra_wakeword.py`.
+Run it once on your Windows machine:
+
+```bash
+pip install pyttsx3 soundfile onnxruntime scikit-learn skl2onnx
+python scripts/train_hey_veyra_wakeword.py
+```
+
+What it does automatically:
+1. Synthesizes ~500 "Hey VEYRA" audio clips using Windows built-in SAPI5
+   TTS voices (multiple voices × rates × volumes — no recordings needed,
+   no microphone, no API key, no internet).
+2. Generates synthetic background-noise clips as negative training data.
+3. Trains a binary classifier and exports a compatible `.onnx` model.
+4. Prints the exact `VEYRA_WAKE_WORD_MODEL=…` line to paste into `.env`.
+
+**Optional: improve accuracy with your own voice**
+
+If you want the model to recognize your specific voice more reliably,
+record a few clips of yourself saying "Hey VEYRA" (16kHz mono WAV) and
+pass them in — they're mixed with the synthetic samples:
+
+```bash
+python scripts/train_hey_veyra_wakeword.py \
+    --extra-clips myvoice1.wav myvoice2.wav myvoice3.wav
+```
+
+Training takes 5–15 minutes on a modern CPU. Once done, update `.env`:
+
+```
+VEYRA_WAKE_WORD_MODEL=C:\VEYRA\models\hey_veyra.onnx
+```
+
+The code (`OpenWakeWordDetector`) already accepts either a bundled name
+or a file path — no code change needed.
 
 ## 3. Speech-to-text — whisper.cpp model
 
