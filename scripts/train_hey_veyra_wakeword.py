@@ -205,6 +205,21 @@ def generate_positive_samples(out_dir: pathlib.Path, extra_clips: list[str]) -> 
 # ---------------------------------------------------------------------------
 
 def generate_negative_samples(out_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Generate negative training samples.
+
+    False-positive wake-word detection (confidence=1.0 on ambient audio) is
+    caused by a model that only learned to distinguish the wake phrase from
+    white noise — real room audio has completely different statistics.  We use
+    three kinds of negatives:
+
+    1. Pure silence — the commonest real-world state; the model MUST learn that
+       silence is NOT the wake word.
+    2. Gaussian white noise at varied amplitudes — broad spectral coverage.
+    3. Distractor TTS phrases — non-wake speech using the same synthesiser
+       voices, so the classifier separates *content* not *voice quality*.
+
+    Ratio: 3× negatives : 1× positives reduces false-positive bias.
+    """
     import random, struct as _struct
     import numpy as np
 
@@ -213,25 +228,41 @@ def generate_negative_samples(out_dir: pathlib.Path) -> list[pathlib.Path]:
 
     paths: list[pathlib.Path] = []
     rng = random.Random(42)
-    n_noise = 200
     dur = 2.0
     n_samp = int(SAMPLE_RATE * dur)
 
+    # --- silence clips (40 % of noise budget) --------------------------------
+    n_silence = 240
+    for i in range(n_silence):
+        # Very low-amplitude "room noise" rather than pure digital silence,
+        # which can cause numerical edge-cases in the mel pipeline.
+        amp = rng.uniform(5, 30)
+        raw = [max(-32768, min(32767, int(rng.gauss(0, amp)))) for _ in range(n_samp)]
+        dest = neg_dir / f"silence_{i:04d}.wav"
+        _write_wav(dest, _struct.pack(f"<{n_samp}h", *raw))
+        paths.append(dest)
+
+    # --- white / coloured noise (60 % of noise budget) -----------------------
+    n_noise = 360
     for i in range(n_noise):
-        amp = rng.uniform(0, 600)
+        amp = rng.uniform(200, 3000)
         raw = [max(-32768, min(32767, int(rng.gauss(0, amp)))) for _ in range(n_samp)]
         dest = neg_dir / f"noise_{i:04d}.wav"
         _write_wav(dest, _struct.pack(f"<{n_samp}h", *raw))
         paths.append(dest)
 
-    # Distractor phrases (non-wake speech)
+    # --- distractor TTS phrases -----------------------------------------------
     try:
         import pyttsx3
         engine = pyttsx3.init()
         distractors = [
             "open the browser", "set a timer", "what time is it",
             "play some music", "close the window", "hey there", "hello",
-            "jarvis", "search for python tutorials", "take a screenshot",
+            "jarvis", "alexa", "hey google", "ok google", "siri",
+            "search for python tutorials", "take a screenshot",
+            "turn off the lights", "send a message", "call mom",
+            "navigate to home", "remind me", "open settings",
+            "volume up", "volume down", "stop", "pause", "resume",
         ]
         for j, phrase in enumerate(distractors):
             dest = neg_dir / f"distractor_{j:04d}.wav"
@@ -241,7 +272,8 @@ def generate_negative_samples(out_dir: pathlib.Path) -> list[pathlib.Path]:
     except Exception:
         pass
 
-    print(f"  Generated {len(paths)} negative/background clips.")
+    print(f"  Generated {len(paths)} negative/background clips "
+          f"(silence + noise + distractors).")
     return paths
 
 
@@ -424,9 +456,12 @@ def _export_onnx(clf, scaler, n_features: int, out_model: pathlib.Path) -> None:
     shape_3d  = helper.make_tensor("shape_3d", TensorProto.INT64, [3], [-1, N_FRAMES, 1])
     node_3d   = helper.make_node("Reshape", ["logit", "shape_3d"], ["logit_3d"])
 
-    # 4. Max over frame axis: [batch, N_FRAMES, 1] → [batch, 1]
-    #    (pick the most "wake-word-like" frame in the 16-frame window)
-    node_max = helper.make_node("ReduceMax", ["logit_3d"], ["max_logit"],
+    # 4. Mean over frame axis: [batch, N_FRAMES, 1] → [batch, 1]
+    #    Mean requires the wake word to be consistently present across the
+    #    whole 16-frame window, not just a single spike frame.  ReduceMax
+    #    caused confidence=1.0 on ambient audio because even one high-logit
+    #    frame anywhere in the window triggered detection.
+    node_max = helper.make_node("ReduceMean", ["logit_3d"], ["max_logit"],
                                  axes=[1], keepdims=0)
 
     # 5. Sigmoid → [batch, 1] probability
