@@ -294,8 +294,11 @@ def extract_features(
             for frame in mel.squeeze(0):            # each frame is [32]
                 mel_frames.append(frame)
 
+        # Pad with silence so even a short "Hey VEYRA" clip (< 1 s) yields
+        # at least one full 76-frame embedding window.
         if len(mel_frames) < n_frames_needed:
-            continue  # clip too short — skip
+            shortage = n_frames_needed - len(mel_frames) + 1
+            mel_frames.extend([np.zeros(n_mel_bins, dtype=np.float32)] * shortage)
 
         # 2. Sliding windows of n_frames_needed, 50 % overlap
         mel_arr = np.array(mel_frames, dtype=np.float32)  # [total, 32]
