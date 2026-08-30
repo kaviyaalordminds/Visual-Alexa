@@ -68,6 +68,31 @@ h1 {
   color: #9aa3b2;
 }
 
+.toggle-btn {
+  display: block;
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.72rem;
+  font-family: inherit;
+  font-weight: 600;
+  border: 1px solid #3b4252;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa3b2;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.toggle-btn:hover:not(:disabled) {
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+.toggle-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .status-ok {
   color: #4ade80;
 }

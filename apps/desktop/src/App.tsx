@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { ComponentStatus, SystemStatus } from "@veyra/contracts";
 
-import { getSystemStatus } from "./api";
+import { getSystemStatus, patchSetting } from "./api";
 import { Avatar } from "./avatar/Avatar";
 import type { ConnectionState } from "./avatar/state";
 import { useAvatarSocket } from "./avatar/useAvatarSocket";
@@ -52,7 +52,24 @@ function connectionStatusClassName(state: ConnectionState): string {
 export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [togglingCC, setTogglingCC] = useState(false);
   const avatarState = useAvatarSocket();
+
+  async function toggleComputerControl() {
+    if (!status || togglingCC) return;
+    const enabling = status.computer_control === "NOT ENABLED";
+    setTogglingCC(true);
+    try {
+      await patchSetting("computer_control.enabled", enabling);
+      // Refresh status immediately rather than waiting for the next poll.
+      const next = await getSystemStatus();
+      setStatus(next);
+    } catch {
+      // The next poll will surface any error; no separate error state needed.
+    } finally {
+      setTogglingCC(false);
+    }
+  }
 
   // Phase 10 P1 (docs/phase-10/TESTING-AUDIT.md item 4): a plain
   // `cancelled` flag only guards against a response landing after
@@ -120,6 +137,19 @@ export default function App() {
               <dd className={statusClassName(value)}>
                 {value}
                 {reason && <span className="status-reason">{reason}</span>}
+                {key === "computer_control" && status && (
+                  <button
+                    className="toggle-btn"
+                    onClick={toggleComputerControl}
+                    disabled={togglingCC}
+                  >
+                    {togglingCC
+                      ? "…"
+                      : value === "NOT ENABLED"
+                        ? "Enable"
+                        : "Disable"}
+                  </button>
+                )}
               </dd>
             </div>
           );

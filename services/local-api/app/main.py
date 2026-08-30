@@ -7,6 +7,7 @@ process with database access and the only process that can invoke a tool.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -52,12 +53,15 @@ from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools
 from app.services.reference_integration import build_reference_integration_bundle
 from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
+from app.services.agent.llm_provider import NotConfiguredLLMProvider
+from app.services.agent.providers import build_llm_provider
 from app.services.subsystem_health import (
     compute_ai_status,
     compute_computer_control_status,
     compute_iot_status,
     compute_vision_status,
     compute_voice_status,
+    record_ai_check_result,
 )
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
@@ -69,6 +73,27 @@ from app.services.voice.register import (
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+async def _startup_ai_health_check() -> None:
+    """Run one AI connectivity probe shortly after startup so /system shows
+    CONNECTED (or ERROR) on the first frontend poll without the user having to
+    invoke system.ai_health_check manually.  Intentionally non-fatal: a
+    network hiccup at boot must not prevent the API from serving requests."""
+    await asyncio.sleep(3)
+    try:
+        provider = build_llm_provider(settings)
+        if isinstance(provider, NotConfiguredLLMProvider):
+            return
+        result = await provider.health_check()
+        record_ai_check_result(result)
+        logger.info(
+            "[AI] startup health-check: %s — %s",
+            "CONNECTED" if result.available else "ERROR",
+            result.reason,
+        )
+    except Exception as exc:
+        logger.warning("[AI] startup health-check failed: %s", exc)
 
 
 @asynccontextmanager
@@ -160,6 +185,7 @@ async def lifespan(app: FastAPI):
 
     mark_ready()
     logger.info("[VEYRA] Local API: READY")
+    asyncio.create_task(_startup_ai_health_check())
     logger.info("[VEYRA] Listening: %s:%s", settings.host, settings.port)
     yield
 

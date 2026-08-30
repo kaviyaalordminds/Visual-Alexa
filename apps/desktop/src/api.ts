@@ -46,6 +46,17 @@ export function getSystemStatus(): Promise<SystemStatus> {
   return getJSON<SystemStatus>("/system");
 }
 
+export async function patchSetting(key: string, value: unknown): Promise<void> {
+  const response = await fetch(`${LOCAL_API_BASE_URL}/settings/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!response.ok) {
+    throw new Error(`PATCH /settings/${key} responded with ${response.status}`);
+  }
+}
+
 export function listTools(): Promise<ToolDefinition[]> {
   return getJSON<ToolDefinition[]>("/tools");
 }
