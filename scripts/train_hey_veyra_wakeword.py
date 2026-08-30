@@ -283,28 +283,28 @@ def extract_features(
             continue
         audio = _resample(audio, sr, SAMPLE_RATE)
 
-        # 1. Collect all mel frames for this file
+        # 1. Collect all mel frames for this file.
+        #    Flatten the raw model output completely and re-partition into
+        #    n_mel_bins-sized slices — robust to any output shape the model
+        #    returns ([1,n,32], [1,32,n], [1,1,32,n], …).
         mel_frames: list[np.ndarray] = []
         for start in range(0, len(audio), chunk):
             seg = audio[start : start + chunk]
             if len(seg) < chunk:
                 seg = np.pad(seg, (0, chunk - len(seg)))
-            mel = melspec_sess.run(None, {mel_in_name: seg.reshape(1, chunk)})[0]
-            mel_sq = mel.squeeze(0)  # remove batch dim
-            # mel_sq may be [n_frames, n_mel_bins] or [n_mel_bins, n_frames];
-            # detect by checking whether the first dim equals n_mel_bins.
-            if mel_sq.ndim == 2 and mel_sq.shape[0] == n_mel_bins:
-                mel_sq = mel_sq.T   # → [n_frames, n_mel_bins]
-            for frame in mel_sq:    # each frame is (n_mel_bins,)
-                mel_frames.append(frame.astype(np.float32))
+            mel_raw = melspec_sess.run(None, {mel_in_name: seg.reshape(1, chunk)})[0]
+            mel_flat = mel_raw.flatten().astype(np.float32)
+            n_frames_chunk = mel_flat.size // n_mel_bins
+            for fi in range(n_frames_chunk):
+                frame = mel_flat[fi * n_mel_bins : (fi + 1) * n_mel_bins].copy()
+                mel_frames.append(frame)  # always exactly (n_mel_bins,)
 
         # Pad with silence so even a short "Hey VEYRA" clip (< 1 s) yields
         # at least one full 76-frame embedding window.
         if len(mel_frames) < n_frames_needed:
             shortage = n_frames_needed - len(mel_frames) + 1
-            mel_frames.extend(
-                [np.zeros(n_mel_bins, dtype=np.float32)] * shortage
-            )
+            for _ in range(shortage):
+                mel_frames.append(np.zeros(n_mel_bins, dtype=np.float32))
 
         # 2. Sliding windows of n_frames_needed, 50 % overlap
         mel_arr = np.array(mel_frames, dtype=np.float32)  # [total, 32]
