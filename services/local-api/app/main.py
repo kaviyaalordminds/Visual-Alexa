@@ -76,24 +76,32 @@ logger = logging.getLogger(__name__)
 
 
 async def _startup_ai_health_check() -> None:
-    """Run one AI connectivity probe shortly after startup so /system shows
+    """Run an AI connectivity probe shortly after startup so /system shows
     CONNECTED (or ERROR) on the first frontend poll without the user having to
-    invoke system.ai_health_check manually.  Intentionally non-fatal: a
-    network hiccup at boot must not prevent the API from serving requests."""
-    await asyncio.sleep(3)
-    try:
-        provider = build_llm_provider(settings)
-        if isinstance(provider, NotConfiguredLLMProvider):
-            return
-        result = await provider.health_check()
-        record_ai_check_result(result)
-        logger.info(
-            "[AI] startup health-check: %s — %s",
-            "CONNECTED" if result.available else "ERROR",
-            result.reason,
-        )
-    except Exception as exc:
-        logger.warning("[AI] startup health-check failed: %s", exc)
+    invoke system.ai_health_check manually.  Retries once after 15 s to
+    tolerate a local model server (Ollama, LM Studio) that is still warming
+    up when the API starts.  Intentionally non-fatal: a failure here must
+    never prevent the API from serving requests."""
+    await asyncio.sleep(5)
+    for attempt in range(2):
+        try:
+            provider = build_llm_provider(settings)
+            if isinstance(provider, NotConfiguredLLMProvider):
+                return
+            result = await provider.health_check()
+            record_ai_check_result(result)
+            logger.info(
+                "[AI] startup health-check (attempt %d): %s — %s",
+                attempt + 1,
+                "CONNECTED" if result.available else "ERROR",
+                result.reason,
+            )
+            if result.available:
+                return
+        except Exception as exc:
+            logger.warning("[AI] startup health-check (attempt %d) failed: %s", attempt + 1, exc)
+        if attempt == 0:
+            await asyncio.sleep(15)
 
 
 @asynccontextmanager
