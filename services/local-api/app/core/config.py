@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     # "Hey VEYRA" model needs training data and is not shipped here, see
     # docs/voice-hardware/SETUP.md.
     wake_word_model: str = "hey_jarvis"
-    wake_word_threshold: float = 0.5
+    wake_word_threshold: float = 0.75
 
     # pywhispercpp: a known whisper.cpp shorthand name (auto-downloaded
     # on first use) or a direct path to an existing ggml model file.

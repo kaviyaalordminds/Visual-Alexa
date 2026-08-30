@@ -456,12 +456,18 @@ def _export_onnx(clf, scaler, n_features: int, out_model: pathlib.Path) -> None:
     shape_3d  = helper.make_tensor("shape_3d", TensorProto.INT64, [3], [-1, N_FRAMES, 1])
     node_3d   = helper.make_node("Reshape", ["logit", "shape_3d"], ["logit_3d"])
 
-    # 4. Mean over frame axis: [batch, N_FRAMES, 1] → [batch, 1]
-    #    Mean requires the wake word to be consistently present across the
-    #    whole 16-frame window, not just a single spike frame.  ReduceMax
-    #    caused confidence=1.0 on ambient audio because even one high-logit
-    #    frame anywhere in the window triggered detection.
-    node_max = helper.make_node("ReduceMean", ["logit_3d"], ["max_logit"],
+    # 4. Max over frame axis: [batch, N_FRAMES, 1] → [batch, 1]
+    #    ReduceMax is correct here: "Hey VEYRA" (≈0.6 s) only occupies ~8 of
+    #    the 16 frames; ReduceMean averages in the surrounding silence frames
+    #    and the score never clears the threshold (model fires on nothing).
+    #    The earlier false-positive problem (confidence=1.0 on ambient audio)
+    #    was caused by poor negative training data (white noise only), not by
+    #    ReduceMax itself.  The 625-clip negative set (240 near-silence + 360
+    #    varied noise + 25 distractors) teaches the model that real ambient
+    #    audio scores low; ReduceMax then fires only when a genuine wake-word
+    #    frame clears the threshold.  Set VEYRA_WAKE_WORD_THRESHOLD=0.75 in
+    #    .env for an extra margin above the default 0.5.
+    node_max = helper.make_node("ReduceMax", ["logit_3d"], ["max_logit"],
                                  axes=[1], keepdims=0)
 
     # 5. Sigmoid → [batch, 1] probability
