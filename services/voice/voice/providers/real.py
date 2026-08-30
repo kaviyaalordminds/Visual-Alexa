@@ -74,11 +74,12 @@ class OpenWakeWordDetector:
     openWakeWord's pretrained ONNX models (no cloud call, no API key).
 
     `wake_word` selects one of openWakeWord's bundled phrases (e.g.
-    "hey_jarvis", "alexa", "hey_mycroft", "hey_rhasspy") — a custom
-    "Hey VEYRA" model needs training data and openWakeWord's own training
-    notebook; that is real future work, not shipped here (see
-    docs/voice-hardware/SETUP.md's "Custom wake word" section). Picking a
-    bundled phrase today is the honest, immediately-usable option.
+    "hey_jarvis", "alexa", "hey_mycroft", "hey_rhasspy") or a path to a
+    custom-trained `.onnx` model — a custom "Hey VEYRA" model needs
+    training data and openWakeWord's own training notebook; that is real
+    future work, not shipped here (see docs/voice-hardware/SETUP.md's
+    "Custom wake word" section). Picking a bundled phrase today is the
+    honest, immediately-usable option.
     """
 
     def __init__(self, wake_word: str = "hey_jarvis", *, threshold: float = 0.5) -> None:
@@ -98,7 +99,16 @@ class OpenWakeWordDetector:
             raise VoiceProviderUnavailableError(
                 f"openWakeWord could not load wake word '{wake_word}': {exc}"
             ) from exc
-        self._wake_word = wake_word
+        # A live check of openWakeWord's own source found it keys its
+        # internal model dict by the basename *without extension* when
+        # `wake_word` is a file path (e.g. '/models/hey_veyra.onnx' ->
+        # key 'hey_veyra'), not by the path itself — using the raw
+        # `wake_word` string to look up a score below would always miss
+        # for a custom model and silently report `confidence=0.0`/never
+        # detected. `self._model.models` is populated with the real
+        # resolved key(s) by the constructor above, so read it back
+        # rather than re-deriving the same logic a second time.
+        self._wake_word = next(iter(self._model.models))
         self._threshold = threshold
 
     async def process_chunk(self, audio_chunk: bytes) -> WakeWordActivation:

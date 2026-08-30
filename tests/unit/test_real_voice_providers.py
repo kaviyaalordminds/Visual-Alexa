@@ -63,6 +63,30 @@ async def test_open_wake_word_reports_a_specific_phrase_and_bounded_confidence()
     assert 0.0 <= activation.confidence <= 1.0
 
 
+async def test_a_custom_model_path_resolves_to_its_basename_as_the_lookup_key(tmp_path):
+    """A live check of openWakeWord's own source found it keys its
+    internal model dict by the basename *without extension* for a file
+    path (e.g. a future real 'hey_veyra.onnx') — using the raw path
+    string to look up a score would always miss and silently report
+    'never detected'. Stands in for a real custom-trained model with a
+    copy of a bundled one, renamed — proves the *key resolution*, not
+    wake-word accuracy."""
+    import shutil
+
+    import openwakeword
+
+    bundled = openwakeword.get_pretrained_model_paths("onnx")[0]
+    custom_path = tmp_path / "hey_veyra.onnx"
+    shutil.copy(bundled, custom_path)
+
+    detector = OpenWakeWordDetector(wake_word=str(custom_path))
+    assert detector._wake_word == "hey_veyra"
+
+    activation = await detector.process_chunk(_silence(0.08))
+    assert activation.detected is False
+    assert activation.confidence >= 0.0  # a real score was read back, not a permanent 0.0 miss
+
+
 def test_unknown_wake_word_name_raises_a_specific_actionable_error():
     with pytest.raises(VoiceProviderUnavailableError):
         OpenWakeWordDetector(wake_word="not_a_real_wake_word")

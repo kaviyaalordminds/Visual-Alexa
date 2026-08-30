@@ -1,10 +1,38 @@
 # Voice Hardware Setup — Wake Word, STT, TTS
 
-Real, local, offline providers now exist for wake-word detection
+## Quick start (2 things only)
+
+Everything is picked and wired for you already — best defaults, all the
+code, all the config. There are exactly two things only you can do
+(this sandbox's network policy blocks Hugging Face, the one real host
+these files live on, so an agent session cannot fetch them on your
+behalf):
+
+1. **Download one voice file** — click both of these on your own
+   machine, save them in the *same folder*:
+   - Model: https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx?download=true
+   - Config: https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json?download=true
+2. **Set 3 lines in `.env`** (copy exactly, replacing the path with
+   wherever you saved the file):
+   ```
+   VEYRA_WAKE_WORD_PROVIDER=openwakeword
+   VEYRA_STT_PROVIDER=whisper_cpp
+   VEYRA_TTS_PROVIDER=piper
+   VEYRA_PIPER_VOICE_MODEL_PATH=C:\VEYRA\models\en_US-lessac-medium.onnx
+   ```
+
+That's it — wake word (`hey_jarvis`, see below for why) and speech-to-
+text need no download at all; they fetch/load automatically the first
+time you start the backend. Everything below is detail/reference, not
+more steps.
+
+## Reference: what's real and why these choices
+
+Real, local, offline providers exist for wake-word detection
 (openWakeWord), speech-to-text (whisper.cpp via `pywhispercpp`), and
 text-to-speech (Piper) — `services/voice/voice/providers/real.py`. None
 of them call a cloud API or need an API key; all audio stays on your
-machine. This doc is how to actually turn them on.
+machine.
 
 `services/local-api/app/services/voice/pipeline.py`'s
 `VoiceHardwarePipeline` is the real glue: it listens continuously for
