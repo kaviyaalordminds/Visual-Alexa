@@ -290,15 +290,21 @@ def extract_features(
             if len(seg) < chunk:
                 seg = np.pad(seg, (0, chunk - len(seg)))
             mel = melspec_sess.run(None, {mel_in_name: seg.reshape(1, chunk)})[0]
-            # mel shape: [1, frames_per_chunk, 32]  (e.g. [1, 5, 32])
-            for frame in mel.squeeze(0):            # each frame is [32]
-                mel_frames.append(frame)
+            mel_sq = mel.squeeze(0)  # remove batch dim
+            # mel_sq may be [n_frames, n_mel_bins] or [n_mel_bins, n_frames];
+            # detect by checking whether the first dim equals n_mel_bins.
+            if mel_sq.ndim == 2 and mel_sq.shape[0] == n_mel_bins:
+                mel_sq = mel_sq.T   # → [n_frames, n_mel_bins]
+            for frame in mel_sq:    # each frame is (n_mel_bins,)
+                mel_frames.append(frame.astype(np.float32))
 
         # Pad with silence so even a short "Hey VEYRA" clip (< 1 s) yields
         # at least one full 76-frame embedding window.
         if len(mel_frames) < n_frames_needed:
             shortage = n_frames_needed - len(mel_frames) + 1
-            mel_frames.extend([np.zeros(n_mel_bins, dtype=np.float32)] * shortage)
+            mel_frames.extend(
+                [np.zeros(n_mel_bins, dtype=np.float32)] * shortage
+            )
 
         # 2. Sliding windows of n_frames_needed, 50 % overlap
         mel_arr = np.array(mel_frames, dtype=np.float32)  # [total, 32]
