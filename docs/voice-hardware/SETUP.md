@@ -18,7 +18,7 @@ behalf):
    VEYRA_WAKE_WORD_PROVIDER=openwakeword
    VEYRA_STT_PROVIDER=whisper_cpp
    VEYRA_TTS_PROVIDER=piper
-   VEYRA_PIPER_VOICE_MODEL_PATH=C:\VEYRA\models\en_US-lessac-medium.onnx
+   VEYRA_PIPER_VOICE_MODEL_PATH=C:\xampp\htdocs\Lordminds\Visual-Alexa\models\en_US-lessac-medium.onnx
    ```
 
 That's it — wake word (`hey_jarvis`, see below for why) and speech-to-
@@ -99,7 +99,7 @@ python scripts/train_hey_veyra_wakeword.py \
 Training takes 5–15 minutes on a modern CPU. Once done, update `.env`:
 
 ```
-VEYRA_WAKE_WORD_MODEL=C:\VEYRA\models\hey_veyra.onnx
+VEYRA_WAKE_WORD_MODEL=C:\xampp\htdocs\Lordminds\Visual-Alexa\models\hey_veyra.onnx
 ```
 
 The code (`OpenWakeWordDetector`) already accepts either a bundled name
@@ -136,7 +136,7 @@ VEYRA_STT_PROVIDER=whisper_cpp
 VEYRA_WHISPER_MODEL=base.en
 
 VEYRA_TTS_PROVIDER=piper
-VEYRA_PIPER_VOICE_MODEL_PATH=C:\VEYRA\models\en_US-lessac-medium.onnx
+VEYRA_PIPER_VOICE_MODEL_PATH=C:\xampp\htdocs\Lordminds\Visual-Alexa\models\en_US-lessac-medium.onnx
 ```
 
 All three must be set (provider + whatever model/path each needs) for
