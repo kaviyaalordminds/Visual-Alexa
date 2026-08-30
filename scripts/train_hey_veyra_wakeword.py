@@ -254,13 +254,26 @@ def extract_features(
     melspec_sess,
     embed_sess,
 ) -> "np.ndarray":
+    """Extract speech-embedding feature vectors from a list of WAV files.
+
+    openWakeWord's pipeline:
+      audio (1280 samples / 80 ms) → melspectrogram.onnx → [n_mel_frames, 32]
+      stack 76 consecutive mel frames → embedding_model.onnx → [96] embedding
+
+    The embedding model expects [batch, 76, 32, 1], so we collect mel frames
+    across chunks and feed sliding 76-frame windows.
+    """
     import numpy as np
 
-    chunk = 1280  # 80 ms at 16 kHz — openWakeWord's native chunk size
-    feats: list[np.ndarray] = []
+    chunk = 1280  # 80 ms at 16 kHz
 
-    mel_in_name = melspec_sess.get_inputs()[0].name
-    emb_in_name = embed_sess.get_inputs()[0].name
+    mel_in_name  = melspec_sess.get_inputs()[0].name
+    emb_in_name  = embed_sess.get_inputs()[0].name
+    emb_in_shape = embed_sess.get_inputs()[0].shape  # e.g. [None, 76, 32, 1]
+    n_frames_needed = int(emb_in_shape[1])           # 76
+    n_mel_bins      = int(emb_in_shape[2])           # 32
+
+    feats: list[np.ndarray] = []
 
     for path in paths:
         try:
@@ -270,13 +283,27 @@ def extract_features(
             continue
         audio = _resample(audio, sr, SAMPLE_RATE)
 
-        for start in range(0, len(audio) - chunk, chunk // 2):
+        # 1. Collect all mel frames for this file
+        mel_frames: list[np.ndarray] = []
+        for start in range(0, len(audio), chunk):
             seg = audio[start : start + chunk]
             if len(seg) < chunk:
                 seg = np.pad(seg, (0, chunk - len(seg)))
-
             mel = melspec_sess.run(None, {mel_in_name: seg.reshape(1, chunk)})[0]
-            emb = embed_sess.run(None, {emb_in_name: mel})[0].flatten()
+            # mel shape: [1, frames_per_chunk, 32]  (e.g. [1, 5, 32])
+            for frame in mel.squeeze(0):            # each frame is [32]
+                mel_frames.append(frame)
+
+        if len(mel_frames) < n_frames_needed:
+            continue  # clip too short — skip
+
+        # 2. Sliding windows of n_frames_needed, 50 % overlap
+        mel_arr = np.array(mel_frames, dtype=np.float32)  # [total, 32]
+        step = max(1, n_frames_needed // 2)
+        for i in range(0, len(mel_arr) - n_frames_needed + 1, step):
+            window = mel_arr[i : i + n_frames_needed]        # [76, 32]
+            inp = window.reshape(1, n_frames_needed, n_mel_bins, 1)  # [1,76,32,1]
+            emb = embed_sess.run(None, {emb_in_name: inp})[0].flatten()
             feats.append(emb)
 
     if not feats:
