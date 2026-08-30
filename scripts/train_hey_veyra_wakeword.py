@@ -4,7 +4,7 @@
 Run this ONCE on your Windows machine after installing the voice extras:
 
     pip install -e "services/voice[wake-word,audio]"
-    pip install pyttsx3 soundfile onnxruntime scikit-learn skl2onnx
+    pip install pyttsx3 soundfile onnxruntime scikit-learn onnx
 
 Then:
 
@@ -368,60 +368,86 @@ def train_and_export(
 
 
 def _export_onnx(clf, scaler, n_features: int, out_model: pathlib.Path) -> None:
-    # Try skl2onnx first (cleanest)
-    try:
-        from skl2onnx import convert_sklearn
-        from skl2onnx.common.data_types import FloatTensorType
-        from sklearn.pipeline import Pipeline
+    """Build an ONNX graph with the exact shape openWakeWord's Model class requires.
 
-        pipe = Pipeline([("scaler", scaler), ("clf", clf)])
-        onnx_model = convert_sklearn(
-            pipe, initial_types=[("float_input", FloatTensorType([None, n_features]))]
-        )
-        with open(str(out_model), "wb") as f:
-            f.write(onnx_model.SerializeToString())
-        print(f"  Exported via skl2onnx: {out_model}")
-        return
-    except ImportError:
-        pass
-    except Exception as exc:
-        print(f"  skl2onnx export failed ({exc}), trying raw onnx ...")
+    openWakeWord reads:
+      model_inputs[name]  = session.get_inputs()[0].shape[1]   → used as n_feature_frames
+      model_outputs[name] = session.get_outputs()[0].shape[1]  → 1 for binary
 
-    # Fallback: build a minimal ONNX graph manually
+    So the graph must accept [batch, N_FRAMES, embedding_dim] and output [batch, 1].
+    We use N_FRAMES=16 (the standard openWakeWord sliding-window size): at predict
+    time openWakeWord calls get_features(16) → [1, 16, 96] and feeds it here.
+
+    The graph flattens the 16 frames, applies the trained logistic-regression weights
+    independently on each frame, takes the max logit over the window (picks the most
+    "wake-word-like" frame), then applies sigmoid → one probability per clip.
+    """
     try:
         import numpy as np
         import onnx
         from onnx import TensorProto, helper
-
-        w = clf.coef_[0].astype(np.float32)
-        b = float(clf.intercept_[0])
-        mean = scaler.mean_.astype(np.float32)
-        scale = scaler.scale_.astype(np.float32)
-        # Bake standardisation into the weights
-        w_eff = (w / scale).astype(np.float32)
-        b_eff = float(b - float(np.dot(w / scale, mean)))
-
-        X_in = helper.make_tensor_value_info("input", TensorProto.FLOAT, [None, n_features])
-        prob_out = helper.make_tensor_value_info("prob", TensorProto.FLOAT, [None, 1])
-        W_init = helper.make_tensor("W", TensorProto.FLOAT, [1, n_features], w_eff.tolist())
-        B_init = helper.make_tensor("B", TensorProto.FLOAT, [1], [b_eff])
-        gemm = helper.make_node("Gemm", ["input", "W", "B"], ["logit"],
-                                alpha=1.0, beta=1.0, transB=1)
-        sig = helper.make_node("Sigmoid", ["logit"], ["prob"])
-        graph = helper.make_graph([gemm, sig], "hey_veyra", [X_in], [prob_out], [W_init, B_init])
-        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
-        onnx.checker.check_model(model)
-        with open(str(out_model), "wb") as f:
-            f.write(model.SerializeToString())
-        print(f"  Exported via raw onnx: {out_model}")
     except ImportError:
         sys.exit(
-            "Cannot export ONNX model — install skl2onnx or onnx:\n"
-            "  pip install skl2onnx\n"
+            "Cannot export ONNX model — install onnx:\n"
+            "  pip install onnx\n"
             "then re-run."
         )
+
+    N_FRAMES = 16  # standard openWakeWord window; shape[1] of the input
+
+    w = clf.coef_[0].astype(np.float32)       # [n_features]
+    b = float(clf.intercept_[0])
+    mean = scaler.mean_.astype(np.float32)    # [n_features]
+    scale = scaler.scale_.astype(np.float32)  # [n_features]
+
+    # Bake StandardScaler into weights so inference is a single Gemm
+    w_eff = (w / scale).astype(np.float32)
+    b_eff = float(b - float(np.dot(w / scale, mean)))
+
+    # Graph I/O
+    # input:  [batch, N_FRAMES, n_features]  → shape[1] = N_FRAMES = 16
+    # output: [batch, 1]                     → shape[1] = 1 (binary)
+    X_in    = helper.make_tensor_value_info("input",  TensorProto.FLOAT, [None, N_FRAMES, n_features])
+    prob_out = helper.make_tensor_value_info("output", TensorProto.FLOAT, [None, 1])
+
+    # 1. Flatten frames: [batch, N_FRAMES, n_features] → [batch*N_FRAMES, n_features]
+    shape_flat = helper.make_tensor("shape_flat", TensorProto.INT64, [2], [-1, n_features])
+    node_flat  = helper.make_node("Reshape", ["input", "shape_flat"], ["flat"])
+
+    # 2. Linear: [batch*N_FRAMES, n_features] @ W.T + B → [batch*N_FRAMES, 1]
+    W_init  = helper.make_tensor("W", TensorProto.FLOAT, [1, n_features], w_eff.tolist())
+    B_init  = helper.make_tensor("B", TensorProto.FLOAT, [1], [b_eff])
+    node_mm = helper.make_node("Gemm", ["flat", "W", "B"], ["logit"],
+                                alpha=1.0, beta=1.0, transB=1)
+
+    # 3. Restore frame axis: [batch*N_FRAMES, 1] → [batch, N_FRAMES, 1]
+    shape_3d  = helper.make_tensor("shape_3d", TensorProto.INT64, [3], [-1, N_FRAMES, 1])
+    node_3d   = helper.make_node("Reshape", ["logit", "shape_3d"], ["logit_3d"])
+
+    # 4. Max over frame axis: [batch, N_FRAMES, 1] → [batch, 1]
+    #    (pick the most "wake-word-like" frame in the 16-frame window)
+    node_max = helper.make_node("ReduceMax", ["logit_3d"], ["max_logit"],
+                                 axes=[1], keepdims=0)
+
+    # 5. Sigmoid → [batch, 1] probability
+    node_sig = helper.make_node("Sigmoid", ["max_logit"], ["output"])
+
+    graph = helper.make_graph(
+        [node_flat, node_mm, node_3d, node_max, node_sig],
+        "hey_veyra",
+        [X_in], [prob_out],
+        [shape_flat, W_init, B_init, shape_3d],
+    )
+    try:
+        onnx_model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+        onnx.checker.check_model(onnx_model)
     except Exception as exc:
-        sys.exit(f"ONNX export failed: {exc}")
+        sys.exit(f"ONNX graph validation failed: {exc}")
+
+    out_model.parent.mkdir(parents=True, exist_ok=True)
+    with open(str(out_model), "wb") as f:
+        f.write(onnx_model.SerializeToString())
+    print(f"  Exported ONNX model: {out_model}")
 
 
 # ---------------------------------------------------------------------------

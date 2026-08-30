@@ -73,7 +73,7 @@ A training script is included — `scripts/train_hey_veyra_wakeword.py`.
 Run it once on your Windows machine:
 
 ```bash
-pip install pyttsx3 soundfile onnxruntime scikit-learn skl2onnx
+pip install pyttsx3 soundfile onnxruntime scikit-learn onnx
 python scripts/train_hey_veyra_wakeword.py
 ```
 
