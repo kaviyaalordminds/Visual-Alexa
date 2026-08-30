@@ -61,7 +61,11 @@ from app.services.subsystem_health import (
 )
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
-from app.services.voice.register import init_voice_manager
+from app.services.voice.register import (
+    build_and_start_voice_pipeline,
+    init_voice_manager,
+    stop_voice_pipeline,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -115,6 +119,10 @@ async def lifespan(app: FastAPI):
         await device_pairing_service.rebuild_permission_cache_on_startup(session)
     init_orchestrator(tool_registry, settings)
     init_voice_manager()
+    # Real, optional hardware pipeline (wake-word/STT/TTS/audio I/O) —
+    # never fatal to startup if nothing is configured or hardware is
+    # absent; see build_and_start_voice_pipeline's own docstring.
+    await build_and_start_voice_pipeline(settings)
 
     # Subsystem activation (docs/subsystem-activation/SUBSYSTEM-ACTIVATION-
     # REPORT.md): structured, per-subsystem startup logging using the same
@@ -163,6 +171,7 @@ async def lifespan(app: FastAPI):
     # explicitly rather than left for the OS to clean up.
     mark_not_ready()
     logger.info("[VEYRA] Shutting down")
+    await stop_voice_pipeline()
     await close_all_websockets()
     await browser_manager.close_all()
     await engine.dispose()

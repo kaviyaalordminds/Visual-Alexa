@@ -59,6 +59,7 @@ from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools, reset_mock_ac_state
 from app.services.reference_integration import build_reference_integration_bundle
 from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
+from app.services.subsystem_health import reset_voice_provider_status
 from app.services.tool_execution import reset_idempotency_cache
 from app.services.tool_registry import tool_registry
 from app.services.vision import register_vision_tools
@@ -108,6 +109,7 @@ async def _reset_state(request):
     reset_mock_ac_state()
     reset_idempotency_cache()
     reset_last_status_snapshot()
+    reset_voice_provider_status()
     for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
         tool_registry.register(mock_definition, mock_executor)
 

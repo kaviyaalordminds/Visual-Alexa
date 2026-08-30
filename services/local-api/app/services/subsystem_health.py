@@ -136,28 +136,98 @@ def compute_ai_status(settings: Settings) -> SubsystemHealth:
 
 
 # --- Voice ----------------------------------------------------------------
+#
+# Real, local providers (openWakeWord/whisper.cpp/Piper) now exist in
+# services/voice/voice/providers/real.py, but constructing one loads a
+# real model — not something to redo on every 5s `/system` poll. Instead,
+# `app/services/voice/register.py` builds each real provider exactly
+# once at process startup and records the outcome here (mirrors AI's own
+# `record_ai_check_result` pattern above) — `/system` only ever reads
+# back what startup already found, never re-probes.
+
+
+@dataclass(frozen=True)
+class VoiceComponentStatus:
+    loaded: bool
+    detail: str
+
+
+_voice_wake_word_status: VoiceComponentStatus | None = None
+_voice_stt_status: VoiceComponentStatus | None = None
+_voice_tts_status: VoiceComponentStatus | None = None
+
+
+def record_voice_wake_word_status(status: VoiceComponentStatus) -> None:
+    global _voice_wake_word_status
+    _voice_wake_word_status = status
+
+
+def record_voice_stt_status(status: VoiceComponentStatus) -> None:
+    global _voice_stt_status
+    _voice_stt_status = status
+
+
+def record_voice_tts_status(status: VoiceComponentStatus) -> None:
+    global _voice_tts_status
+    _voice_tts_status = status
+
+
+def reset_voice_provider_status() -> None:
+    """Test-isolation helper — process-global like every other registry
+    here, so one test's real-provider load result never leaks into the
+    next."""
+    global _voice_wake_word_status, _voice_stt_status, _voice_tts_status
+    _voice_wake_word_status = None
+    _voice_stt_status = None
+    _voice_tts_status = None
 
 
 def compute_voice_status(settings: Settings) -> SubsystemHealth:
-    declared = [
-        p for p in (settings.stt_provider, settings.tts_provider, settings.wake_word_provider) if p
-    ]
-    if not declared:
+    # Only the components the operator actually declared count toward
+    # CONNECTED — a stale recorded status for a component that isn't
+    # even configured this run must never inflate the overall verdict.
+    declared_components = {
+        name: value
+        for name, value in (
+            ("wake-word", settings.wake_word_provider),
+            ("stt", settings.stt_provider),
+            ("tts", settings.tts_provider),
+        )
+        if value
+    }
+    if not declared_components:
         return SubsystemHealth(
             status="NOT CONFIGURED", reason="No STT/TTS/wake-word provider configured."
         )
-    # Real and honest: services/voice/voice/providers/base.py ships only
-    # NotConfigured* implementations — no real audio pipeline exists in
-    # this build regardless of what an operator names here. Declaring
-    # intent still produces a more useful reason than a bare default.
-    return SubsystemHealth(
-        status="NOT CONFIGURED",
-        reason=(
-            f"Configured for provider(s) {', '.join(declared)}, but this build has no real "
-            "audio/STT/TTS implementation wired in yet — voice remains unavailable "
-            "regardless of this setting until a real provider adapter is added."
-        ),
-    )
+
+    recorded: dict[str, VoiceComponentStatus | None] = {
+        "wake-word": _voice_wake_word_status,
+        "stt": _voice_stt_status,
+        "tts": _voice_tts_status,
+    }
+    known: dict[str, VoiceComponentStatus] = {
+        name: status
+        for name in declared_components
+        if (status := recorded.get(name)) is not None
+    }
+    if len(known) < len(declared_components):
+        return SubsystemHealth(
+            status="DEGRADED",
+            reason=(
+                f"Configured for provider(s) {', '.join(declared_components.values())}, but "
+                "the voice pipeline has not finished initializing yet (this normally happens "
+                "once at process startup)."
+            ),
+        )
+
+    loaded = {name: s for name, s in known.items() if s.loaded}
+    failed = {name: s for name, s in known.items() if not s.loaded}
+    detail = "; ".join(f"{name}: {s.detail}" for name, s in known.items())
+    if failed and loaded:
+        return SubsystemHealth(status="DEGRADED", reason=detail)
+    if failed:
+        return SubsystemHealth(status="ERROR", reason=detail)
+    return SubsystemHealth(status="CONNECTED", reason=detail)
 
 
 # --- Vision -----------------------------------------------------------------

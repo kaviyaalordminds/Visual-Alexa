@@ -60,6 +60,9 @@ on `PATH` for `services/vision`'s real OCR engine to report itself
 available (`apt-get install -y tesseract-ocr` on Debian/Ubuntu) — without
 it, Vision's OCR capability check and `tests/unit/test_ocr_engine.py` and
 friends correctly report/fail as unavailable rather than silently passing.
+For real wake-word/STT/TTS voice hardware, see
+`docs/voice-hardware/SETUP.md` (optional — voice defaults to honestly
+`NOT CONFIGURED` without it).
 
 ### Local API
 
@@ -117,8 +120,13 @@ what's verified vs. still blocked on a Windows build/test machine.
 ## What is not implemented yet
 
 A real LLM-backed general planner (the planner remains deterministic/
-template-based by design), a real STT/TTS/wake-word audio pipeline, a
-real vision *model* provider (OCR and screen capture are real), memory-
-informed target resolution, and any real external integration (WhatsApp,
-email, etc.) or real IoT protocol — all clearly reported as such by their
-own health checks (see `docs/subsystem-activation/`), never faked.
+template-based by design), a real vision *model* provider (OCR and
+screen capture are real), memory-informed target resolution, and any
+real external integration (WhatsApp, email, etc.) or real IoT protocol —
+all clearly reported as such by their own health checks (see
+`docs/subsystem-activation/`), never faked.
+
+A real, local, offline STT/TTS/wake-word audio pipeline now exists
+(openWakeWord/whisper.cpp/Piper — see `docs/voice-hardware/SETUP.md`);
+only real microphone/speaker hardware verification is still pending
+(this repo's own dev/CI sandbox has no audio hardware to test against).

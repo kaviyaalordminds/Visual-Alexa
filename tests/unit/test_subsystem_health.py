@@ -13,6 +13,7 @@ from app.services.browser.manager import BrowserManager
 from app.services.browser.testing import FakeBrowserAdapter
 from app.services.device_pairing import DevicePairingService
 from app.services.subsystem_health import (
+    VoiceComponentStatus,
     compute_ai_status,
     compute_browser_status,
     compute_computer_control_status,
@@ -20,7 +21,11 @@ from app.services.subsystem_health import (
     compute_vision_status,
     compute_voice_status,
     record_ai_check_result,
+    record_voice_stt_status,
+    record_voice_tts_status,
+    record_voice_wake_word_status,
     reset_ai_check_cache,
+    reset_voice_provider_status,
 )
 from computer_control.core.capabilities import PlatformCapabilities
 
@@ -93,11 +98,46 @@ class TestVoiceStatus:
         health = compute_voice_status(_settings())
         assert health.status == "NOT CONFIGURED"
 
-    def test_declared_intent_still_reports_not_configured_honestly(self):
-        health = compute_voice_status(_settings(stt_provider="local-whisper"))
-        assert health.status == "NOT CONFIGURED"
-        assert "local-whisper" in health.reason
-        assert "no real audio" in health.reason
+    def test_declared_intent_with_no_recorded_load_result_is_degraded_not_connected(self):
+        """A real provider (services/voice/voice/providers/real.py) now
+        exists, but this unit test never runs `build_and_start_voice_
+        pipeline` — the process-global load-result registry stays empty,
+        which must never be silently reported as CONNECTED."""
+        health = compute_voice_status(_settings(stt_provider="whisper_cpp"))
+        assert health.status == "DEGRADED"
+        assert "whisper_cpp" in health.reason
+        assert "has not finished initializing" in health.reason
+
+    def test_connected_when_all_three_real_components_loaded(self):
+        record_voice_wake_word_status(VoiceComponentStatus(True, "wake word ok"))
+        record_voice_stt_status(VoiceComponentStatus(True, "stt ok"))
+        record_voice_tts_status(VoiceComponentStatus(True, "tts ok"))
+        health = compute_voice_status(
+            _settings(
+                stt_provider="whisper_cpp",
+                tts_provider="piper",
+                wake_word_provider="openwakeword",
+            )
+        )
+        assert health.status == "CONNECTED"
+        assert "wake word ok" in health.reason
+        reset_voice_provider_status()
+
+    def test_degraded_when_some_real_components_loaded_and_some_failed(self):
+        record_voice_wake_word_status(VoiceComponentStatus(True, "wake word ok"))
+        record_voice_stt_status(VoiceComponentStatus(False, "whisper model missing"))
+        health = compute_voice_status(
+            _settings(stt_provider="whisper_cpp", wake_word_provider="openwakeword")
+        )
+        assert health.status == "DEGRADED"
+        assert "whisper model missing" in health.reason
+        reset_voice_provider_status()
+
+    def test_error_when_the_only_declared_component_failed_to_load(self):
+        record_voice_stt_status(VoiceComponentStatus(False, "whisper model missing"))
+        health = compute_voice_status(_settings(stt_provider="whisper_cpp"))
+        assert health.status == "ERROR"
+        reset_voice_provider_status()
 
 
 class TestVisionStatus:

@@ -12,12 +12,31 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Real (non-mock) audio I/O providers are lazy-imported and depend on
-# these only when actually instantiated — see voice/providers/real.py.
-# Never runtime-verified in this environment (no audio hardware exists
-# here at all — docs/phase-5/PHASE-5-IMPLEMENTATION-PLAN.md §1).
+# Real (non-mock) providers in voice/providers/real.py — each group only
+# needed if that specific capability is configured (app/services/voice/
+# register.py). Real microphone/speaker I/O cannot be exercised in this
+# repo's own dev/CI sandbox (no audio hardware, no PortAudio library —
+# confirmed live during development); wake-word/STT/TTS logic itself was
+# live-verified here (docs/voice-hardware/SETUP.md).
 audio = [
     "sounddevice>=0.5,<1",
+]
+# openWakeWord — local, offline wake-word detection (no cloud, no API
+# key). Ships small pretrained ONNX models inside the package itself.
+wake-word = [
+    "openwakeword>=0.6,<1",
+]
+# pywhispercpp — local, offline speech-to-text via whisper.cpp bindings
+# (no cloud, no API key). Downloads a real ggml model file on first use
+# of a known model name; see docs/voice-hardware/SETUP.md.
+stt = [
+    "pywhispercpp>=1.5,<2",
+]
+# Piper — local, offline text-to-speech (no cloud, no API key). Needs a
+# real voice .onnx file the operator downloads once; see
+# docs/voice-hardware/SETUP.md.
+tts = [
+    "piper-tts>=1.7,<2",
 ]
 dev = [
     "pytest>=8,<9",

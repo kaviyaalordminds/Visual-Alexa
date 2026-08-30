@@ -90,15 +90,38 @@ class Settings(BaseSettings):
     # providers/cloud_llm_provider.py speaks plain HTTP via httpx.
     ai_base_url: str = ""
 
-    # Declares intent to use a given STT/TTS/wake-word provider by name.
-    # No real provider ships in this build (see services/voice/voice/
-    # providers/base.py's own docstring) — these fields only let the
-    # health check report an accurate reason ("configured for 'X' but no
-    # real implementation is wired in this build") instead of a bare
-    # "not configured" when an operator has, in fact, expressed intent.
+    # Declares which real provider family to use for each capability —
+    # "whisper_cpp"/"piper"/"openwakeword" select the real classes in
+    # services/voice/voice/providers/real.py (app/services/voice/
+    # register.py does the actual wiring); any other value, or blank,
+    # keeps that capability on the honest NotConfigured* fallback.
     stt_provider: str = ""
     tts_provider: str = ""
     wake_word_provider: str = ""
+
+    # openWakeWord: one of its bundled pretrained phrases (e.g.
+    # "hey_jarvis", "alexa", "hey_mycroft", "hey_rhasspy") — a custom
+    # "Hey VEYRA" model needs training data and is not shipped here, see
+    # docs/voice-hardware/SETUP.md.
+    wake_word_model: str = "hey_jarvis"
+    wake_word_threshold: float = 0.5
+
+    # pywhispercpp: a known whisper.cpp shorthand name (auto-downloaded
+    # on first use) or a direct path to an existing ggml model file.
+    whisper_model: str = "base.en"
+    whisper_models_dir: str = ""
+
+    # Piper: a real voice .onnx file path the operator downloads once —
+    # never a name pywhispercpp-style auto-resolves, since Piper voices
+    # are per-language/per-speaker files with no single "default" to
+    # fetch. Blank keeps TTS on NotConfiguredTTS regardless of
+    # `tts_provider`.
+    piper_voice_model_path: str = ""
+
+    # Optional device selection for the real sounddevice-backed
+    # AudioInput/AudioOutput — blank uses the OS default device.
+    audio_input_device: str = ""
+    audio_output_device: str = ""
 
     # Declares intent to use a real vision *model* provider (distinct
     # from OCR/screen-capture, which are already real and checked
