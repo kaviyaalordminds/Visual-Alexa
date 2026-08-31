@@ -42,7 +42,7 @@ _INFERENCE_TIMEOUT_SECONDS = 15.0
 
 class CloudLLMProvider:
     """Real `LLMProvider` implementation, real HTTP calls to whatever
-    OpenAI-compatible endpoint the operator configured. Never raises out
+    OpenAI-compatible or Anthropic endpoint the operator configured. Never raises out
     of any of its public methods — every failure mode (unreachable host,
     auth failure, timeout, malformed response) becomes a normal
     `LLMResult(available=False, reason=...)`, matching
@@ -55,9 +55,17 @@ class CloudLLMProvider:
         base_url: str,
         api_key: str,
         model: str,
+        provider: str = "openai",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        self._provider = provider.lower()
+        if self._provider == "anthropic":
+            if not base_url or "console.anthropic.com" in base_url or base_url == "https://api.anthropic.com":
+                self._base_url = "https://api.anthropic.com/v1"
+            else:
+                self._base_url = base_url.rstrip("/")
+        else:
+            self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
         # Test-only seam: a real deployment never passes this, so
@@ -67,18 +75,33 @@ class CloudLLMProvider:
         self._transport = transport
 
     async def health_check(self) -> LLMResult:
-        """Cheap reachability probe — GET .../models, no inference, no
-        per-token cost. This is what `/system` and the `ai_health_check`
+        """Cheap reachability probe — GET .../models (OpenAI) or POST .../messages (Anthropic),
+        no inference, no per-token cost. This is what `/system` and the `ai_health_check`
         tool use; it is never called on an automatic timer (see this
         module's docstring)."""
         try:
             async with httpx.AsyncClient(
                 timeout=_HEALTH_CHECK_TIMEOUT_SECONDS, transport=self._transport
             ) as client:
-                response = await client.get(
-                    f"{self._base_url}/models",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                )
+                if self._provider == "anthropic":
+                    response = await client.post(
+                        f"{self._base_url}/messages",
+                        headers={
+                            "x-api-key": self._api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": self._model,
+                            "max_tokens": 1,
+                            "messages": [{"role": "user", "content": "ping"}],
+                        },
+                    )
+                else:
+                    response = await client.get(
+                        f"{self._base_url}/models",
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                    )
             if response.status_code == 200:
                 return LLMResult(available=True, content="reachable")
             if response.status_code in (401, 403):
@@ -106,18 +129,36 @@ class CloudLLMProvider:
             async with httpx.AsyncClient(
                 timeout=_INFERENCE_TIMEOUT_SECONDS, transport=self._transport
             ) as client:
-                response = await client.post(
-                    f"{self._base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                    json={"model": self._model, "messages": messages, "max_tokens": 256},
-                )
+                if self._provider == "anthropic":
+                    response = await client.post(
+                        f"{self._base_url}/messages",
+                        headers={
+                            "x-api-key": self._api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": self._model,
+                            "messages": messages,
+                            "max_tokens": 256,
+                        },
+                    )
+                else:
+                    response = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        json={"model": self._model, "messages": messages, "max_tokens": 256},
+                    )
             if response.status_code != 200:
                 return LLMResult(
                     available=False,
                     reason=f"Provider responded with HTTP {response.status_code}.",
                 )
             data = response.json()
-            content = data["choices"][0]["message"]["content"]
+            if self._provider == "anthropic":
+                content = data["content"][0]["text"]
+            else:
+                content = data["choices"][0]["message"]["content"]
             return LLMResult(available=True, content=content)
         except httpx.TimeoutException:
             return LLMResult(
@@ -156,8 +197,15 @@ def build_llm_provider(settings: Settings) -> LLMProvider:
     Returns `NotConfiguredLLMProvider` (never raises, never a network
     call) unless every piece required to reach a real provider is
     actually present."""
-    if settings.ai_provider and settings.ai_api_key and settings.ai_model and settings.ai_base_url:
+    base_url = settings.ai_base_url
+    if settings.ai_provider.lower() == "anthropic" and not base_url:
+        base_url = "https://api.anthropic.com/v1"
+
+    if settings.ai_provider and settings.ai_api_key and settings.ai_model and base_url:
         return CloudLLMProvider(
-            base_url=settings.ai_base_url, api_key=settings.ai_api_key, model=settings.ai_model
+            base_url=base_url,
+            api_key=settings.ai_api_key,
+            model=settings.ai_model,
+            provider=settings.ai_provider,
         )
     return NotConfiguredLLMProvider()

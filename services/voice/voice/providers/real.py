@@ -300,11 +300,14 @@ class SounddeviceAudioInput:
             self._stream = None
 
     async def stream(self) -> AsyncIterator[bytes]:
+        import asyncio
+
         if self._stream is None:
             return
         while self._stream is not None:
-            data, _overflowed = self._stream.read(1280)
+            data, _overflowed = await asyncio.to_thread(self._stream.read, 1280)
             yield data.tobytes()
+
 
     async def list_devices(self) -> list[AudioDeviceInfo]:
         import sounddevice as sd
