@@ -128,6 +128,14 @@ class Settings(BaseSettings):
     # independently — see vision's own NotConfiguredVisionProvider).
     vision_provider: str = ""
 
+    # Home Assistant REST API integration — blank = not configured.
+    # Set VEYRA_HA_BASE_URL (e.g. http://homeassistant.local:8123) and
+    # VEYRA_HA_TOKEN (a long-lived access token from HA's user profile)
+    # to enable real smart-home device control via iot.ha.call_service.
+    # The token is never logged or returned by any endpoint.
+    ha_base_url: str = ""
+    ha_token: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

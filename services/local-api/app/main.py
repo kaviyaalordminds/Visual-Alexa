@@ -51,6 +51,7 @@ from app.services.credential_manager import credential_manager
 from app.services.device_pairing import device_pairing_service
 from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools
+from app.services.iot.ha_tools import build_ha_tools
 from app.services.reference_integration import build_reference_integration_bundle
 from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
 from app.services.agent.llm_provider import NotConfiguredLLMProvider
@@ -141,6 +142,11 @@ async def lifespan(app: FastAPI):
     integration_registry.register_definition(build_reference_integration_bundle(credential_manager))
     for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
         tool_registry.register(mock_definition, mock_executor)
+    # Real Home Assistant IoT tools — only registered when HA is configured.
+    if settings.ha_base_url and settings.ha_token:
+        for ha_def, ha_exec in build_ha_tools():
+            tool_registry.register(ha_def, ha_exec)
+        logger.info("[DEVICE] Home Assistant tools: REGISTERED")
     register_browser_tools(tool_registry)
     logger.info("[VEYRA] Tool registry: READY (%d tools)", len(tool_registry.list()))
     async with SessionLocal() as session:

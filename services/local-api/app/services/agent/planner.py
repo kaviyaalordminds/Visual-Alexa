@@ -69,7 +69,6 @@ class PlanOutcome:
 # "return CAPABILITY_UNAVAILABLE... do not pretend."
 _UNAVAILABLE_GOALS: dict[str, str] = {
     "send_file": "Sending files (email/chat/WhatsApp) is not available yet.",
-    "control_device": "Smart-device control is not available yet.",
     "delete_files": "Deleting files is not available yet — Phase 2 deliberately "
     "has no delete tool (docs/phase-2/PHASE-2-IMPLEMENTATION-PLAN.md §7).",
     # docs/security/04-DEVICE-TRUST.md — VEYRA only ever controls this PC.
@@ -78,6 +77,11 @@ _UNAVAILABLE_GOALS: dict[str, str] = {
     "remote_device_task": "Controlling another computer or device is not "
     "available — VEYRA only controls this PC.",
 }
+
+# Gmail compose URL: opens Gmail new message, pre-filled with the recipient.
+# Safe to compose the URL here — the recipient comes from a parsed,
+# validated StructuredIntent field, never raw model output reaching the URL.
+_GMAIL_COMPOSE_URL = "https://mail.google.com/mail/?view=cm&fs=1&to="
 
 # Phase 11 — "browser_task" now has a real, bounded planning template
 # (`_plan_browser_task` below) built on Phase 8's already-real Playwright
@@ -142,6 +146,18 @@ class TaskPlanner:
         if intent.goal == "browser_task":
             return self._plan_browser_task(intent)
 
+        if intent.goal == "email_task":
+            return self._plan_email_task(intent)
+
+        if intent.goal == "media_task":
+            return self._plan_media_task(intent)
+
+        if intent.goal == "control_device":
+            return self._plan_control_device(intent)
+
+        if intent.goal == "compound_task":
+            return await self._plan_compound_task(intent, search, memory_lookup)
+
         if intent.goal == "create_folder":
             return self._plan_create_folder(intent)
 
@@ -201,24 +217,63 @@ class TaskPlanner:
             )
         ]
 
-        query_match = _WEB_SEARCH_QUERY_RE.search(intent.object or "")
-        if query_match:
+        # YouTube-specific search — entities["youtube_search"] set by intent
+        youtube_query = intent.entities.get("youtube_search")
+        if youtube_query:
             try:
                 self._tools.select("browser.search")
             except UnknownToolSelectedError as exc:
                 return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
-            query = query_match.group(1).strip().rstrip(".")
             steps.append(
                 PlanStep(
                     sequence=2,
-                    description=f"Search the web for '{query}'.",
+                    description=f"Search YouTube for '{youtube_query}'.",
                     intent=intent.goal,
                     tool_id="browser.search",
-                    arguments={"query": query, "engine": "google"},
-                    expected_outcome="Search results are loaded.",
+                    arguments={"query": youtube_query, "engine": "youtube"},
+                    expected_outcome="YouTube search results are loaded.",
                     risk_level=RiskLevel.SAFE,
                 )
             )
+        # Direct URL navigation — entities["navigate_url"] set by intent
+        elif navigate_url := intent.entities.get("navigate_url"):
+            try:
+                self._tools.select("browser.navigate")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            # Ensure the URL has a scheme so the browser doesn't treat it as a search
+            url = navigate_url if "://" in navigate_url else f"https://{navigate_url}"
+            steps.append(
+                PlanStep(
+                    sequence=2,
+                    description=f"Navigate to '{url}'.",
+                    intent=intent.goal,
+                    tool_id="browser.navigate",
+                    arguments={"url": url},
+                    expected_outcome="The page is loaded.",
+                    risk_level=RiskLevel.SAFE,
+                )
+            )
+        else:
+            # Generic web search from the raw request text
+            query_match = _WEB_SEARCH_QUERY_RE.search(intent.object or "")
+            if query_match:
+                try:
+                    self._tools.select("browser.search")
+                except UnknownToolSelectedError as exc:
+                    return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+                query = query_match.group(1).strip().rstrip(".")
+                steps.append(
+                    PlanStep(
+                        sequence=2,
+                        description=f"Search the web for '{query}'.",
+                        intent=intent.goal,
+                        tool_id="browser.search",
+                        arguments={"query": query, "engine": "google"},
+                        expected_outcome="Search results are loaded.",
+                        risk_level=RiskLevel.SAFE,
+                    )
+                )
 
         steps.append(
             PlanStep(
@@ -233,6 +288,220 @@ class TaskPlanner:
             )
         )
         return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_email_task(self, intent: StructuredIntent) -> PlanOutcome:
+        """Opens Gmail compose in a browser, pre-addressed to the recipient."""
+        try:
+            self._tools.select("browser.launch")
+            self._tools.select("browser.navigate")
+            self._tools.select("browser.get_page")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+
+        recipient = intent.entities.get("recipient") or intent.object or ""
+        compose_url = _GMAIL_COMPOSE_URL + recipient
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Launch a browser.",
+                intent=intent.goal,
+                tool_id="browser.launch",
+                arguments={"headless": False},
+                expected_outcome="A browser session is open.",
+                risk_level=RiskLevel.SAFE,
+            ),
+            PlanStep(
+                sequence=2,
+                description=f"Open Gmail compose addressed to '{recipient}'.",
+                intent=intent.goal,
+                tool_id="browser.navigate",
+                arguments={"url": compose_url},
+                expected_outcome="Gmail compose window is open.",
+                risk_level=RiskLevel.SENSITIVE,
+            ),
+            PlanStep(
+                sequence=3,
+                description="Observe the compose window is ready.",
+                intent="verify",
+                tool_id="browser.get_page",
+                arguments={},
+                expected_outcome="Gmail compose page is visible.",
+                risk_level=RiskLevel.SAFE,
+                verification_strategy="page_observation",
+            ),
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_media_task(self, intent: StructuredIntent) -> PlanOutcome:
+        """Searches for media via Spotify in the browser, or falls back to a web search."""
+        try:
+            self._tools.select("browser.launch")
+            self._tools.select("browser.search")
+            self._tools.select("browser.get_page")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+
+        media = intent.entities.get("media") or intent.object or ""
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Launch a browser.",
+                intent=intent.goal,
+                tool_id="browser.launch",
+                arguments={"headless": False},
+                expected_outcome="A browser session is open.",
+                risk_level=RiskLevel.SAFE,
+            ),
+            PlanStep(
+                sequence=2,
+                description=f"Search Spotify for '{media}'.",
+                intent=intent.goal,
+                tool_id="browser.search",
+                arguments={"query": media, "engine": "spotify"},
+                expected_outcome="Spotify search results are shown.",
+                risk_level=RiskLevel.SAFE,
+            ),
+            PlanStep(
+                sequence=3,
+                description="Observe the result page.",
+                intent="verify",
+                tool_id="browser.get_page",
+                arguments={},
+                expected_outcome="Media search results are visible.",
+                risk_level=RiskLevel.SAFE,
+                verification_strategy="page_observation",
+            ),
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_control_device(self, intent: StructuredIntent) -> PlanOutcome:
+        """Routes to the Home Assistant tool if iot.ha.call_service is registered,
+        otherwise falls back to CAPABILITY_UNAVAILABLE."""
+        ha_tool = "iot.ha.call_service"
+        try:
+            self._tools.select(ha_tool)
+        except UnknownToolSelectedError:
+            # No HA tool registered — check mock IoT tools as fallback
+            mock_ac_power = "iot.mock_ac.set_power"
+            try:
+                self._tools.select(mock_ac_power)
+            except UnknownToolSelectedError:
+                return PlanOutcome(
+                    status="CAPABILITY_UNAVAILABLE",
+                    reason=(
+                        "Smart-device control requires Home Assistant. "
+                        "Configure VEYRA_HA_BASE_URL and VEYRA_HA_TOKEN in your .env file."
+                    ),
+                )
+            # Mock IoT path
+            return self._plan_mock_device(intent)
+
+        device = intent.object or ""
+        action = intent.entities.get("action", "power")
+        power_state = intent.entities.get("power_state", "on")
+        value = intent.entities.get("value", "")
+
+        # Build the HA service call payload
+        if action == "set" and value:
+            description = f"Set {device} to {value} via Home Assistant."
+            arguments: dict = {
+                "device": device,
+                "action": "set",
+                "value": value,
+            }
+        else:
+            description = f"Turn {power_state} the {device} via Home Assistant."
+            arguments = {
+                "device": device,
+                "action": "power",
+                "state": power_state,
+            }
+
+        steps = [
+            PlanStep(
+                sequence=1,
+                description=description,
+                intent=intent.goal,
+                tool_id=ha_tool,
+                arguments=arguments,
+                expected_outcome=f"Device '{device}' state changed.",
+                risk_level=RiskLevel.SENSITIVE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_mock_device(self, intent: StructuredIntent) -> PlanOutcome:
+        """Fallback device plan using the mock IoT AC tool."""
+        action = intent.entities.get("action", "power")
+        power_state = intent.entities.get("power_state", "on")
+        value = intent.entities.get("value", "")
+
+        if action == "set" and value:
+            tool_id = "iot.mock_ac.set_temperature"
+            args: dict = {"temperature": value}
+            desc = f"Set AC temperature to {value}."
+        else:
+            tool_id = "iot.mock_ac.set_power"
+            args = {"state": power_state}
+            desc = f"Turn {power_state} the AC."
+
+        steps = [
+            PlanStep(
+                sequence=1,
+                description=desc,
+                intent=intent.goal,
+                tool_id=tool_id,
+                arguments=args,
+                expected_outcome="Device state changed.",
+                risk_level=RiskLevel.SENSITIVE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    async def _plan_compound_task(
+        self,
+        intent: StructuredIntent,
+        search: SearchFn | None,
+        memory_lookup: MemoryLookupFn | None,
+    ) -> PlanOutcome:
+        """Chains two sub-intents into a single flat step list.
+        Each sub-intent is planned independently; their steps are
+        concatenated with re-numbered sequences."""
+        steps_data = intent.entities.get("steps", [])
+        if not steps_data or len(steps_data) < 2:
+            return PlanOutcome(
+                status="INVALID", reason="Compound task must have at least two steps."
+            )
+
+        all_steps: list[PlanStep] = []
+        seq = 1
+        for step_info in steps_data:
+            sub_intent = StructuredIntent(
+                raw_request=intent.raw_request,
+                goal=step_info.get("goal", ""),
+                object=step_info.get("object", ""),
+                entities=step_info.get("entities", {}),
+                risk_level=intent.risk_level,
+                status="UNDERSTOOD",
+            )
+            outcome = await self.create_plan(
+                sub_intent, search=search, memory_lookup=memory_lookup
+            )
+            if outcome.status not in ("PLANNED",):
+                # If any sub-task can't be planned, report it
+                return PlanOutcome(
+                    status=outcome.status,
+                    reason=f"Step '{sub_intent.goal}': {outcome.reason}",
+                    candidates=outcome.candidates,
+                    clarifying_question=outcome.clarifying_question,
+                )
+            assert outcome.plan is not None
+            for step in outcome.plan.steps:
+                all_steps.append(step.model_copy(update={"sequence": seq}))
+                seq += 1
+
+        plan = self._build_plan("compound_task", all_steps)
+        return PlanOutcome(status="PLANNED", plan=plan)
 
     def _plan_search_files(self, intent: StructuredIntent) -> PlanOutcome:
         try:

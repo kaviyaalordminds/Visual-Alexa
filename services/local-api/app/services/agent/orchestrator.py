@@ -39,6 +39,7 @@ from app.models.task import TaskStep as TaskStepRow
 from app.services.agent.confirmation import ConfirmationManager
 from app.services.agent.context import ContextManager, StepRecord, TaskContext
 from app.services.agent.intent import IntentInterpreter
+from app.services.agent.llm_intent import llm_classify_intent
 from app.services.agent.loop_protection import LoopBudgetTracker
 from app.services.agent.planner import FileCandidate, TaskPlanner
 from app.services.agent.recovery import RecoveryManager
@@ -140,7 +141,21 @@ class AgentOrchestrator:
         if await self._check_cancelled(session, sm, task):
             return
 
-        if intent.status in ("AMBIGUOUS", "MISSING_INFORMATION"):
+        if intent.status == "MISSING_INFORMATION":
+            # Try LLM fallback before asking the user — handles natural
+            # phrasing the deterministic regex didn't cover.
+            llm_intent = await llm_classify_intent(task.description)
+            if llm_intent is not None and llm_intent.status == "UNDERSTOOD":
+                intent = llm_intent
+                task.normalized_goal = intent.model_dump(mode="json")
+                context.entities = intent.entities
+            else:
+                await self._wait_for_user(
+                    session, sm, task, intent.clarifying_question, "clarification"
+                )
+                return
+
+        if intent.status == "AMBIGUOUS":
             await self._wait_for_user(
                 session, sm, task, intent.clarifying_question, "clarification"
             )
