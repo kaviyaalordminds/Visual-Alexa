@@ -102,6 +102,38 @@ _TIME_CONSTRAINT_RE = re.compile(r"\b(yesterday|today|last week)\b", re.IGNORECA
 _FILE_TYPE_RE = re.compile(r"\b(pdf|docx?|xlsx?|txt|png|jpe?g)\b", re.IGNORECASE)
 _LOCATION_RE = re.compile(r"\bin\s+(downloads|documents|desktop)\b", re.IGNORECASE)
 
+# Typing / keyboard input
+_TYPE_TEXT_RE = re.compile(r"^(?:type|enter|input)\s+(.+)$", re.IGNORECASE)
+_PRESS_KEY_RE = re.compile(r"^press\s+(.+)$", re.IGNORECASE)
+
+# Click / UI interaction
+_CLICK_RE = re.compile(r"^click(?:\s+on)?\s+(.+)$", re.IGNORECASE)
+
+# Scrolling
+_SCROLL_RE = re.compile(r"^scroll\s+(up|down)\b", re.IGNORECASE)
+
+# Window control (minimize/maximize/close/restore)
+_WINDOW_CONTROL_RE = re.compile(
+    r"^(minimize|maximize|close|restore)\s+(?:the\s+)?(.+)$", re.IGNORECASE
+)
+
+# Screenshot / screen reading
+_SCREENSHOT_RE = re.compile(
+    r"^(?:take\s+(?:a\s+)?screenshot\b|screenshot\b|capture\s+(?:the\s+)?screen\b)",
+    re.IGNORECASE,
+)
+_READ_SCREEN_RE = re.compile(
+    r"^(?:read\s+(?:the\s+)?screen\b"
+    r"|what(?:'s|\s+is)\s+on\s+(?:the\s+)?screen\b"
+    r"|what\s+does\s+(?:it|the\s+screen)\s+say\b"
+    r"|read\s+(?:this|that)\s+out\b)",
+    re.IGNORECASE,
+)
+
+# Copy / paste
+_COPY_RE = re.compile(r"^copy(?:\s+(.+))?$", re.IGNORECASE)
+_PASTE_RE = re.compile(r"^paste\b", re.IGNORECASE)
+
 # Compound command splitter: "open chrome and find youtube" → ["open chrome", "find youtube"]
 # Handles "and" as a connector between two commands.
 _COMPOUND_AND_RE = re.compile(
@@ -217,6 +249,27 @@ class IntentInterpreter:
                 status="UNDERSTOOD",
             )
 
+        # Screenshot / screen reading — before generic browser check
+        if _SCREENSHOT_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="take_screenshot",
+                object=text,
+                entities=entities,
+                risk_level=RiskLevel.MODERATE,
+                status="UNDERSTOOD",
+            )
+
+        if _READ_SCREEN_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="read_screen",
+                object=text,
+                entities=entities,
+                risk_level=RiskLevel.MODERATE,
+                status="UNDERSTOOD",
+            )
+
         # Generic browser trigger
         if _BROWSER_RE.match(text):
             return StructuredIntent(
@@ -235,6 +288,90 @@ class IntentInterpreter:
                 goal="send_file",
                 object=match.group(1).strip(),
                 entities={**entities, "recipient": match.group(2).strip().rstrip(".")},
+                risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        # Type text into the active/target window
+        if match := _TYPE_TEXT_RE.match(text):
+            text_to_type = match.group(1).strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="type_text",
+                object=text_to_type,
+                entities=entities,
+                risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        # Press a key or hotkey (e.g. "press Enter", "press Ctrl+C")
+        if match := _PRESS_KEY_RE.match(text):
+            key_spec = match.group(1).strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="press_key",
+                object=key_spec,
+                entities=entities,
+                risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        # Click a UI element by name
+        if match := _CLICK_RE.match(text):
+            element = match.group(1).strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="click_element",
+                object=element,
+                entities=entities,
+                risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        # Scroll up or down
+        if match := _SCROLL_RE.match(text):
+            direction = match.group(1).lower()
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="scroll_page",
+                object=direction,
+                entities={**entities, "direction": direction},
+                risk_level=RiskLevel.SAFE,
+                status="UNDERSTOOD",
+            )
+
+        # Window control: minimize/maximize/close/restore <app>
+        if match := _WINDOW_CONTROL_RE.match(text):
+            action = match.group(1).lower()
+            app_name = match.group(2).strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="window_control",
+                object=app_name,
+                entities={**entities, "action": action},
+                risk_level=RiskLevel.MODERATE,
+                status="UNDERSTOOD",
+            )
+
+        # Paste clipboard content
+        if _PASTE_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="paste_text",
+                object=None,
+                entities=entities,
+                risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        # Copy selected text (or copy a specific piece of text)
+        if match := _COPY_RE.match(text):
+            content = (match.group(1) or "").strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="copy_text",
+                object=content or None,
+                entities=entities,
                 risk_level=RiskLevel.SENSITIVE,
                 status="UNDERSTOOD",
             )

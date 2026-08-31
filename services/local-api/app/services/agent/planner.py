@@ -161,6 +161,33 @@ class TaskPlanner:
         if intent.goal == "create_folder":
             return self._plan_create_folder(intent)
 
+        if intent.goal == "type_text":
+            return self._plan_type_text(intent)
+
+        if intent.goal == "press_key":
+            return self._plan_press_key(intent)
+
+        if intent.goal == "click_element":
+            return self._plan_click_element(intent)
+
+        if intent.goal == "scroll_page":
+            return self._plan_scroll_page(intent)
+
+        if intent.goal == "window_control":
+            return self._plan_window_control(intent)
+
+        if intent.goal == "take_screenshot":
+            return self._plan_take_screenshot(intent)
+
+        if intent.goal == "read_screen":
+            return self._plan_read_screen(intent)
+
+        if intent.goal == "copy_text":
+            return self._plan_copy_text(intent)
+
+        if intent.goal == "paste_text":
+            return self._plan_paste_text(intent)
+
         return PlanOutcome(
             status="CAPABILITY_UNAVAILABLE",
             reason=f"No planning template exists for goal '{intent.goal}'.",
@@ -475,12 +502,23 @@ class TaskPlanner:
 
         all_steps: list[PlanStep] = []
         seq = 1
+        last_app: str | None = None  # propagate opened app name into input goals
         for step_info in steps_data:
+            goal = step_info.get("goal", "")
+            entities = dict(step_info.get("entities") or {})
+            # When the previous step opened an application, inject its name as
+            # window_title into subsequent input-targeting goals so keyboard.type
+            # can focus the correct window without an extra window.find step.
+            if goal in ("type_text", "press_key", "click_element", "scroll_page"):
+                if last_app and not entities.get("window_title"):
+                    entities["window_title"] = last_app
+            if goal == "open_application":
+                last_app = step_info.get("object") or last_app
             sub_intent = StructuredIntent(
                 raw_request=intent.raw_request,
-                goal=step_info.get("goal", ""),
+                goal=goal,
                 object=step_info.get("object", ""),
-                entities=step_info.get("entities", {}),
+                entities=entities,
                 risk_level=intent.risk_level,
                 status="UNDERSTOOD",
             )
@@ -502,6 +540,216 @@ class TaskPlanner:
 
         plan = self._build_plan("compound_task", all_steps)
         return PlanOutcome(status="PLANNED", plan=plan)
+
+    def _plan_type_text(self, intent: StructuredIntent) -> PlanOutcome:
+        text = (intent.object or "").strip()
+        window_title = (intent.entities or {}).get("window_title", "")
+        if window_title:
+            try:
+                self._tools.select("keyboard.type")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            steps = [
+                PlanStep(
+                    sequence=1,
+                    description=f"Type '{text}' into '{window_title}'.",
+                    intent=intent.goal,
+                    tool_id="keyboard.type",
+                    arguments={"target": {"window_title": window_title}, "text": text},
+                    expected_outcome="Text is typed into the target window.",
+                    risk_level=RiskLevel.SENSITIVE,
+                )
+            ]
+        else:
+            try:
+                self._tools.select("keyboard.type_active")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            steps = [
+                PlanStep(
+                    sequence=1,
+                    description=f"Type '{text}' into the active element.",
+                    intent=intent.goal,
+                    tool_id="keyboard.type_active",
+                    arguments={"text": text},
+                    expected_outcome="Text is typed into the currently focused element.",
+                    risk_level=RiskLevel.SENSITIVE,
+                )
+            ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_press_key(self, intent: StructuredIntent) -> PlanOutcome:
+        key_spec = (intent.object or "").strip()
+        # Detect hotkey: "Ctrl+C", "Ctrl+Shift+S", "Alt+F4", etc.
+        # Split on '+' keeping parts; if more than one non-empty part → hotkey.
+        parts = [p.strip() for p in key_spec.split("+") if p.strip()]
+        if len(parts) > 1:
+            try:
+                self._tools.select("keyboard.hotkey_active")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            steps = [
+                PlanStep(
+                    sequence=1,
+                    description=f"Press hotkey {' + '.join(parts)}.",
+                    intent=intent.goal,
+                    tool_id="keyboard.hotkey_active",
+                    arguments={"keys": parts},
+                    expected_outcome="The hotkey combination is sent to the active window.",
+                    risk_level=RiskLevel.SENSITIVE,
+                )
+            ]
+        else:
+            try:
+                self._tools.select("keyboard.press_active")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            steps = [
+                PlanStep(
+                    sequence=1,
+                    description=f"Press key '{key_spec}'.",
+                    intent=intent.goal,
+                    tool_id="keyboard.press_active",
+                    arguments={"key": key_spec},
+                    expected_outcome="The key is sent to the active window.",
+                    risk_level=RiskLevel.SENSITIVE,
+                )
+            ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_click_element(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("ui.click")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        selector: dict = {"name": intent.object or ""}
+        window_title = (intent.entities or {}).get("window_title")
+        if window_title:
+            selector["window_title"] = window_title
+        steps = [
+            PlanStep(
+                sequence=1,
+                description=f"Click on '{intent.object}'.",
+                intent=intent.goal,
+                tool_id="ui.click",
+                arguments={"selector": selector},
+                expected_outcome=f"The '{intent.object}' element is clicked.",
+                risk_level=RiskLevel.SENSITIVE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_scroll_page(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("keyboard.press_active")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        direction = (intent.entities or {}).get("direction", "down")
+        key = "PAGEDOWN" if direction == "down" else "PAGEUP"
+        steps = [
+            PlanStep(
+                sequence=1,
+                description=f"Scroll {direction} using {key}.",
+                intent=intent.goal,
+                tool_id="keyboard.press_active",
+                arguments={"key": key},
+                expected_outcome=f"The active window scrolls {direction}.",
+                risk_level=RiskLevel.SAFE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_window_control(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("window.control_by_title")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        action = (intent.entities or {}).get("action", "focus")
+        app_name = (intent.object or "").strip()
+        steps = [
+            PlanStep(
+                sequence=1,
+                description=f"{action.capitalize()} '{app_name}'.",
+                intent=intent.goal,
+                tool_id="window.control_by_title",
+                arguments={"title_query": app_name, "action": action},
+                expected_outcome=f"The '{app_name}' window is {action}d.",
+                risk_level=RiskLevel.MODERATE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_take_screenshot(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("screen.capture")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Capture the full screen.",
+                intent=intent.goal,
+                tool_id="screen.capture",
+                arguments={},
+                expected_outcome="A screenshot of the primary display is captured.",
+                risk_level=RiskLevel.MODERATE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_read_screen(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("screen.capture_active_window")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Capture the active window for reading.",
+                intent=intent.goal,
+                tool_id="screen.capture_active_window",
+                arguments={},
+                expected_outcome="A screenshot of the active window is captured for OCR/reading.",
+                risk_level=RiskLevel.MODERATE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_copy_text(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("keyboard.hotkey_active")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Copy selected text (Ctrl+C).",
+                intent=intent.goal,
+                tool_id="keyboard.hotkey_active",
+                arguments={"keys": ["ctrl", "c"]},
+                expected_outcome="Selected text is copied to the clipboard.",
+                risk_level=RiskLevel.SENSITIVE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
+
+    def _plan_paste_text(self, intent: StructuredIntent) -> PlanOutcome:
+        try:
+            self._tools.select("keyboard.hotkey_active")
+        except UnknownToolSelectedError as exc:
+            return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+        steps = [
+            PlanStep(
+                sequence=1,
+                description="Paste clipboard content (Ctrl+V).",
+                intent=intent.goal,
+                tool_id="keyboard.hotkey_active",
+                arguments={"keys": ["ctrl", "v"]},
+                expected_outcome="Clipboard content is pasted into the active element.",
+                risk_level=RiskLevel.SENSITIVE,
+            )
+        ]
+        return PlanOutcome(status="PLANNED", plan=self._build_plan(intent.goal, steps))
 
     def _plan_search_files(self, intent: StructuredIntent) -> PlanOutcome:
         try:

@@ -41,6 +41,11 @@ class _HandleArgs(BaseModel):
     handle: str
 
 
+class _ControlByTitleArgs(BaseModel):
+    title_query: str
+    action: str = "focus"
+
+
 def _tool(tool_id: str, name: str, description: str, args_model: type[BaseModel], risk: RiskLevel):
     return ToolDefinition(
         id=tool_id,
@@ -172,6 +177,36 @@ def build_window_tools(bundle: BackendBundle) -> list[tuple[ToolDefinition, obje
             data={"title": window.title},
         )
 
+    async def control_by_title(call: ToolCallRequest) -> ActionResult:
+        """Find a window by title then apply minimize/maximize/close/restore/focus in one step.
+        Avoids having to chain window.find + window.* in two separate plan steps."""
+        args = _ControlByTitleArgs(**call.arguments)
+        window = await backend.find_window(args.title_query)  # type: ignore[union-attr]
+        if window is None:
+            raise ToolLogicError(
+                ErrorCategory.WINDOW_NOT_FOUND,
+                f"No window matching '{args.title_query}'.",
+            )
+        action = args.action.lower()
+        ok = False
+        if action == "minimize":
+            ok = await backend.minimize(window.handle)  # type: ignore[union-attr]
+        elif action == "maximize":
+            ok = await backend.maximize(window.handle)  # type: ignore[union-attr]
+        elif action == "close":
+            ok = await backend.close_window(window.handle)  # type: ignore[union-attr]
+        elif action == "restore":
+            ok = await backend.restore(window.handle)  # type: ignore[union-attr]
+        else:
+            ok = await backend.focus_window(window.handle)  # type: ignore[union-attr]
+        return ActionResult(
+            status=ActionStatus.EXECUTED if ok else ActionStatus.FAILED,
+            tool="window.control_by_title",
+            target=args.title_query,
+            execution_time_ms=0,
+            data={"action": action, "handle": window.handle, "title": window.title},
+        )
+
     specs: list[tuple[ToolDefinition, ToolFn]] = [
         (
             _tool(
@@ -272,6 +307,16 @@ def build_window_tools(bundle: BackendBundle) -> list[tuple[ToolDefinition, obje
                 RiskLevel.SAFE,
             ),
             get_title,
+        ),
+        (
+            _tool(
+                "window.control_by_title",
+                "Control Window by Title",
+                "Find a window by title and apply an action: focus, minimize, maximize, restore, or close.",
+                _ControlByTitleArgs,
+                RiskLevel.MODERATE,
+            ),
+            control_by_title,
         ),
     ]
 
