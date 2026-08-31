@@ -199,6 +199,20 @@ class VoiceHardwarePipeline:
             logger.info("[VOICE] Wake word triggered but only the wake phrase was transcribed — no command.")
             return
 
+        # Discard noise/filler artefacts: a real command contains at least
+        # one alphanumeric word with two or more characters.  Single-letter
+        # "words" and pure-punctuation blobs are STT noise, not commands.
+        meaningful_words = [
+            w for w in transcript_text.split()
+            if re.search(r"[a-zA-Z0-9]{2,}", w)
+        ]
+        if not meaningful_words:
+            logger.info(
+                "[VOICE] Transcript '%s' contains no meaningful words — treating as silence.",
+                transcript_text,
+            )
+            return
+
         async with SessionLocal() as db:
             session = await self._voice_manager.start_session(
                 db, activation_source=ActivationSource.WAKE_WORD, audio_device=self._audio_device
