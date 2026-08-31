@@ -67,13 +67,20 @@ _DEVICE_SET_RE = re.compile(
 
 # Browser / web navigation patterns — ordered most-specific first
 # "search X on youtube" / "find X on youtube" / "play X on youtube"
+# Also matches "search youtube for X" / "search on youtube for X"
 _YOUTUBE_RE = re.compile(
-    r"(?:search|find|look\s+up|play)\s+(.+?)\s+on\s+youtube", re.IGNORECASE
+    r"(?:search|find|look\s+up|play)\s+(.+?)\s+on\s+youtube"
+    r"|(?:search|find|look\s+up|play)\s+(?:on\s+)?youtube\s+(?:for\s+)?(.+)",
+    re.IGNORECASE,
 )
 # "go to X" / "navigate to X" / "open X.com" / "visit X"
 _NAVIGATE_RE = re.compile(
     r"^(?:go\s+to|navigate\s+to|visit|open)\s+(https?://\S+|\S+\.(?:com|org|net|io|co|gov|edu|app)\S*)\s*$",
     re.IGNORECASE,
+)
+# "open <known-site>" without a TLD — e.g. "open youtube", "open google"
+_OPEN_KNOWN_SITE_RE = re.compile(
+    r"^(?:open|go\s+to|visit|launch)\s+(\w+)\s*$", re.IGNORECASE
 )
 # "email X" / "send email to X" / "compose email to X" / "send a mail to X"
 _EMAIL_RE = re.compile(
@@ -84,9 +91,10 @@ _EMAIL_RE = re.compile(
 _PLAY_RE = re.compile(
     r"^play\s+(?!.*\bon\s+youtube\b)(.+?)(?:\s+on\s+spotify)?\s*$", re.IGNORECASE
 )
-# Generic browser trigger: open chrome, browse, search the web, open youtube
+# Generic browser trigger: open chrome/firefox/edge/browser, browse, search the web
+# ("open youtube" is now handled by _OPEN_KNOWN_SITE_RE + _KNOWN_SITES above)
 _BROWSER_RE = re.compile(
-    r"^open\s+chrome\b|^open\s+(?:firefox|edge|browser)\b|^browse\b|^search\s+(?:the\s+)?web\b|^open\s+youtube\b",
+    r"^open\s+chrome\b|^open\s+(?:firefox|edge|brave|browser)\b|^browse\b|^search\s+(?:the\s+)?web\b",
     re.IGNORECASE,
 )
 
@@ -209,8 +217,13 @@ class IntentInterpreter:
         """Classify a single (non-compound) command."""
 
         # YouTube-specific search — before generic browser check
+        # _YOUTUBE_RE has two alternations:
+        #   group(1): "search X on youtube"  → query is group 1
+        #   group(2): "search youtube for X" → query is group 2
         if match := _YOUTUBE_RE.search(text):
-            query = match.group(1).strip().rstrip(".")
+            raw_query = (match.group(1) or match.group(2) or "").strip().rstrip(".")
+            # Strip a stray leading "for " that STT sometimes produces
+            query = re.sub(r"^for\s+", "", raw_query, flags=re.IGNORECASE).strip()
             return StructuredIntent(
                 raw_request=raw_request,
                 goal="browser_task",
@@ -233,6 +246,20 @@ class IntentInterpreter:
                 risk_level=RiskLevel.MODERATE,
                 status="UNDERSTOOD",
             )
+
+        # "open youtube", "open google", "open reddit" — known site without TLD
+        if match := _OPEN_KNOWN_SITE_RE.match(text):
+            site = match.group(1).lower()
+            if site in _KNOWN_SITES:
+                url = f"https://www.{site}.com"
+                return StructuredIntent(
+                    raw_request=raw_request,
+                    goal="browser_task",
+                    object=text,
+                    entities={**entities, "navigate_url": url},
+                    risk_level=RiskLevel.MODERATE,
+                    status="UNDERSTOOD",
+                )
 
         # Email compose
         if match := _EMAIL_RE.match(text):
