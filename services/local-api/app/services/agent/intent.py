@@ -134,10 +134,19 @@ _READ_SCREEN_RE = re.compile(
 _COPY_RE = re.compile(r"^copy(?:\s+(.+))?$", re.IGNORECASE)
 _PASTE_RE = re.compile(r"^paste\b", re.IGNORECASE)
 
-# Compound command splitter: "open chrome and find youtube" → ["open chrome", "find youtube"]
-# Handles "and" as a connector between two commands.
-_COMPOUND_AND_RE = re.compile(
-    r"^(.+?)\s+and\s+(?:then\s+)?(.+)$", re.IGNORECASE
+# Compound command splitter — recognises several natural connectors:
+#   "open notepad and type hello"  (and)
+#   "open notepad then type hello" (then)
+#   "open notepad, type hello"     (comma)
+#   "open notepad type hello"      (bare verb — only when part_b starts with a known action verb)
+_COMPOUND_CONNECTOR_RE = re.compile(
+    r"^(.+?)\s*(?:,|and\s+(?:then\s+)?|then\s+)\s*(.+)$", re.IGNORECASE
+)
+# Action-verb prefixes that identify part_b as a new command in bare-verb compounds
+_COMPOUND_VERB_RE = re.compile(
+    r"^(type|enter|input|press|click|scroll|minimize|maximize|close|restore|"
+    r"screenshot|read|copy|paste|search|find|open|play|email|send)\b",
+    re.IGNORECASE,
 )
 
 
@@ -496,29 +505,47 @@ class IntentInterpreter:
     def _try_compound(
         self, raw_request: str, text: str, entities: dict
     ) -> StructuredIntent | None:
-        """Try to parse 'X and Y' as a compound two-step command.
-        Returns None if this doesn't look like a genuine compound command."""
-        match = _COMPOUND_AND_RE.match(text)
-        if not match:
-            return None
-        part_a = match.group(1).strip()
-        part_b = match.group(2).strip()
+        """Try to parse a two-step compound command.
 
-        # Classify each half independently
+        Recognised connectors: "and", "then", "," (explicit), and bare-verb
+        adjacency like "open notepad type hello" where the second token is a
+        known action verb.  Returns None if no pattern applies or if either
+        half produces MISSING_INFORMATION.
+        """
+        part_a: str | None = None
+        part_b: str | None = None
+
+        # 1. Explicit connectors: "X and Y", "X then Y", "X, Y"
+        m = _COMPOUND_CONNECTOR_RE.match(text)
+        if m:
+            part_a, part_b = m.group(1).strip(), m.group(2).strip()
+        else:
+            # 2. Bare-verb adjacency: split at the first word that is a known
+            #    action verb (other than the very first word in text).
+            words = text.split()
+            for i in range(1, len(words)):
+                if _COMPOUND_VERB_RE.match(words[i]):
+                    candidate_a = " ".join(words[:i])
+                    candidate_b = " ".join(words[i:])
+                    ia = self._classify_single(candidate_a, candidate_a, {})
+                    ib = self._classify_single(candidate_b, candidate_b, {})
+                    if ia.status == "UNDERSTOOD" and ib.status == "UNDERSTOOD":
+                        part_a, part_b = candidate_a, candidate_b
+                    break
+
+        if part_a is None or part_b is None:
+            return None
+
         intent_a = self._classify_single(part_a, part_a, self._extract_entities(part_a))
         intent_b = self._classify_single(part_b, part_b, self._extract_entities(part_b))
 
-        # Only treat as compound if both halves were understood
         if intent_a.status != "UNDERSTOOD" or intent_b.status != "UNDERSTOOD":
             return None
 
-        # Don't compound two open_application goals that look like
-        # a single multi-word app name (e.g. "visual studio code and python")
+        # Two open_application goals that look like a single multi-word name → skip
         if intent_a.goal == intent_b.goal == "open_application":
-            # If parts look like a phrase rather than two distinct apps, skip
             if len(part_a.split()) <= 2 and len(part_b.split()) <= 2:
-                # Let it fall through as a single unrecognized request
-                pass
+                return None
 
         return StructuredIntent(
             raw_request=raw_request,

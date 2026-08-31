@@ -502,18 +502,43 @@ class TaskPlanner:
 
         all_steps: list[PlanStep] = []
         seq = 1
-        last_app: str | None = None  # propagate opened app name into input goals
+        last_app: str | None = None  # name of the most-recently opened app
+        need_focus_step = False  # True once an app was opened; triggers a focus step before input
+
         for step_info in steps_data:
             goal = step_info.get("goal", "")
             entities = dict(step_info.get("entities") or {})
-            # When the previous step opened an application, inject its name as
-            # window_title into subsequent input-targeting goals so keyboard.type
-            # can focus the correct window without an extra window.find step.
-            if goal in ("type_text", "press_key", "click_element", "scroll_page"):
-                if last_app and not entities.get("window_title"):
-                    entities["window_title"] = last_app
+
+            # Before the first input step that follows an open_application, insert a
+            # window.control_by_title "focus" step. This gives pywinauto a chance to
+            # wait for the new window and makes it the active foreground window, so
+            # the subsequent keyboard.type_active step always targets the right place.
+            if goal in ("type_text", "press_key", "click_element", "scroll_page") and need_focus_step and last_app:
+                try:
+                    self._tools.select("window.control_by_title")
+                    all_steps.append(
+                        PlanStep(
+                            sequence=seq,
+                            description=f"Wait for '{last_app}' window and bring it to focus.",
+                            intent="verify",
+                            tool_id="window.control_by_title",
+                            arguments={"title_query": last_app, "action": "focus"},
+                            expected_outcome=f"'{last_app}' window is the active window.",
+                            risk_level=RiskLevel.SAFE,
+                        )
+                    )
+                    seq += 1
+                except UnknownToolSelectedError:
+                    pass  # best-effort: proceed without the focus step
+                need_focus_step = False
+                # Strip window_title from entities — we already focused via control_by_title,
+                # so use keyboard.type_active (no window targeting) for reliability.
+                entities.pop("window_title", None)
+
             if goal == "open_application":
                 last_app = step_info.get("object") or last_app
+                need_focus_step = True
+
             sub_intent = StructuredIntent(
                 raw_request=intent.raw_request,
                 goal=goal,
@@ -526,7 +551,6 @@ class TaskPlanner:
                 sub_intent, search=search, memory_lookup=memory_lookup
             )
             if outcome.status not in ("PLANNED",):
-                # If any sub-task can't be planned, report it
                 return PlanOutcome(
                     status=outcome.status,
                     reason=f"Step '{sub_intent.goal}': {outcome.reason}",

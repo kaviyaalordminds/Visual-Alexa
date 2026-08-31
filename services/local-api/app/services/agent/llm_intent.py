@@ -36,14 +36,32 @@ _INTENT_GOALS = [
     "control_device",
     "compound_task",
     "send_file",
+    # Phase 11 — computer control / input goals
+    "type_text",
+    "press_key",
+    "click_element",
+    "scroll_page",
+    "window_control",
+    "take_screenshot",
+    "read_screen",
+    "copy_text",
+    "paste_text",
 ]
 
 _SYSTEM_PROMPT = """\
 You are an intent classifier for VEYRA, a local AI assistant that controls a Windows PC.
 Classify the user's request into a JSON object with these fields:
 - goal: one of """ + ", ".join(f'"{g}"' for g in _INTENT_GOALS) + """
-- object: the primary target (app name, file, device name, URL, person, etc.)
-- entities: a JSON object with extra context. For browser_task include "navigate_url" or "youtube_search" or "web_search" key. For control_device include "action" ("power"/"set"), "power_state" ("on"/"off"), and/or "value". For compound_task include "steps" as an array of {goal, object, entities}.
+- object: the primary target (app name, file, device name, URL, person, text to type, key name, element name, etc.)
+- entities: a JSON object with extra context.
+  For browser_task: include "navigate_url" or "youtube_search" or "web_search" key.
+  For control_device: include "action" ("power"/"set"), "power_state" ("on"/"off"), and/or "value".
+  For compound_task: include "steps" as an array of {goal, object, entities} — use this when the user asks to do two actions in sequence (e.g. "open notepad and type hello", "open notepad type hello").
+  For type_text: object is the text to type.
+  For press_key: object is the key name (e.g. "Enter", "Escape", "Ctrl+C").
+  For click_element: object is the UI element name.
+  For scroll_page: object is "up" or "down".
+  For window_control: object is the window/app name, entities includes "action" ("minimize"/"maximize"/"close"/"restore"/"focus").
 - risk_level: "SAFE", "MODERATE", "SENSITIVE", or "CRITICAL"
 
 Respond with ONLY a JSON object, no explanation, no markdown.
