@@ -118,6 +118,25 @@ def test_local_browser_request_is_not_misclassified_as_remote():
     assert intent.goal == "browser_task"
 
 
+def test_open_known_website_is_a_browser_task_not_an_unknown_application():
+    """A real, reported bug: "open youtube" used to fall through to
+    `_OPEN_APP_RE` -> `open_application` -> a guaranteed
+    APPLICATION_NOT_FOUND, since no such app is installed. It must be
+    recognized as a browser_task instead, same as "open chrome" already
+    was."""
+    for phrase in ("open youtube", "open Gmail", "Open Spotify"):
+        intent = IntentInterpreter().interpret(phrase)
+        assert intent.goal == "browser_task", phrase
+        assert intent.status == "UNDERSTOOD"
+
+
+def test_open_unknown_application_still_falls_through_to_open_application():
+    """A site name absent from the known-website list must not be
+    silently guessed at — "open notepad" stays `open_application`."""
+    intent = IntentInterpreter().interpret("open Notepad")
+    assert intent.goal == "open_application"
+
+
 def test_never_executes_anything():
     """IntentInterpreter has no side effects at all — interpreting the
     same request twice is idempotent and produces no observable change."""

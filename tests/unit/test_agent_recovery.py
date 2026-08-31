@@ -55,6 +55,22 @@ def test_permanent_error_aborts_immediately_never_retried():
     assert decision.retry_count == 0
 
 
+def test_resource_busy_asks_user_instead_of_falling_through_to_unrecognized():
+    """A real, reported bug: RESOURCE_BUSY (e.g. BrowserManager's
+    concurrent-session cap) used to hit none of the classified sets and
+    fall through to the generic 'not a recognized recoverable category'
+    ABORT. Retrying the identical action can't succeed while the resource
+    is still busy for the same reason, but it isn't permanent either
+    (freeing the resource fixes it) — that's a decision only the user can
+    make, so it must go straight to ASK_USER with a clear, actionable
+    reason, never a blind retry and never the confusing fallback abort."""
+    decision = RecoveryManager().decide(
+        error_code=ErrorCategory.RESOURCE_BUSY, retry_count=0, replan_count=0, budget=_BUDGET
+    )
+    assert decision.strategy == RecoveryStrategy.ASK_USER
+    assert "not a recognized recoverable category" not in decision.reason
+
+
 def test_capability_unavailable_never_retried():
     decision = RecoveryManager().decide(
         error_code=ErrorCategory.CAPABILITY_UNAVAILABLE,

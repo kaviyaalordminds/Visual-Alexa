@@ -32,6 +32,29 @@ async def test_launch_creates_a_session_and_tab(client):
     assert body["status"] == "SUCCESS"
     assert body["output"]["session_id"]
     assert body["output"]["tab_id"]
+    assert body["output"]["reused"] is False
+
+
+async def test_launch_reuses_the_active_session_by_default(client):
+    """A real, reported bug: every browser_task planned a fresh
+    `browser.launch` step regardless of whether a session was already
+    open, so running "open X" a few times in a row silently accumulated
+    sessions until BrowserManager's max_sessions cap was hit and the next
+    launch failed with a confusing RESOURCE_BUSY. Reusing the active
+    session by default fixes the root cause."""
+    first = await client.post("/tools/browser.launch/invoke", json={})
+    second = await client.post("/tools/browser.launch/invoke", json={})
+    assert second.json()["output"]["session_id"] == first.json()["output"]["session_id"]
+    assert second.json()["output"]["reused"] is True
+
+
+async def test_launch_with_reuse_existing_false_forces_a_new_session(client):
+    first = await client.post("/tools/browser.launch/invoke", json={})
+    second = await client.post(
+        "/tools/browser.launch/invoke", json={"arguments": {"reuse_existing": False}}
+    )
+    assert second.json()["output"]["session_id"] != first.json()["output"]["session_id"]
+    assert second.json()["output"]["reused"] is False
 
 
 async def test_navigate_validates_url_scheme(client):

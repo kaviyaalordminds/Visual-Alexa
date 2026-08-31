@@ -14,6 +14,14 @@ import re
 
 from veyra_contracts import RiskLevel, StructuredIntent
 
+# `_BROWSER_RE` below needs to recognize "open youtube"/"open gmail"/etc.
+# as a browser_task, not fall through to `_OPEN_APP_RE` (-> `open_application`
+# -> a wrong-guess APPLICATION_NOT_FOUND, since no such app is installed).
+# Imports the planner's own name->URL map rather than keeping a second,
+# separately maintained site list here — this module only needs the
+# names, `planner.py` is where the URLs actually get used.
+from app.services.agent.planner import KNOWN_WEBSITES
+
 # docs/phase-4 §92 — the brief's own adversarial-input list, matched
 # literally. A request containing one of these is never planned at all;
 # IntentInterpreter marks it UNSAFE and TaskPlanner refuses to produce
@@ -65,7 +73,16 @@ _SEARCH_RE = re.compile(r"^(?:find|search(?: for)?)\s+(.+)$", re.IGNORECASE)
 _DELETE_RE = re.compile(r"^delete\s+(.+)$", re.IGNORECASE)
 _SEND_RE = re.compile(r"^send\s+(.+?)\s+to\s+(.+)$", re.IGNORECASE)
 _DEVICE_RE = re.compile(r"^turn\s+(on|off)\s+(?:the\s+)?(.+)$", re.IGNORECASE)
-_BROWSER_RE = re.compile(r"^open\s+chrome\b|^browse\b|^search\s+(?:the\s+)?web\b", re.IGNORECASE)
+_KNOWN_SITE_ALTERNATION = "|".join(
+    re.escape(name) for name in sorted(KNOWN_WEBSITES, key=len, reverse=True)
+)
+_BROWSER_RE = re.compile(
+    r"^open\s+chrome\b"
+    r"|^browse\b"
+    r"|^search\s+(?:the\s+)?web\b"
+    rf"|^open\s+(?:the\s+)?(?:{_KNOWN_SITE_ALTERNATION})\b",
+    re.IGNORECASE,
+)
 _TIME_CONSTRAINT_RE = re.compile(r"\b(yesterday|today|last week)\b", re.IGNORECASE)
 _FILE_TYPE_RE = re.compile(r"\b(pdf|docx?|xlsx?|txt|png|jpe?g)\b", re.IGNORECASE)
 _LOCATION_RE = re.compile(r"\bin\s+(downloads|documents|desktop)\b", re.IGNORECASE)

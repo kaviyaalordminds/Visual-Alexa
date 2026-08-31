@@ -19,6 +19,7 @@ _KNOWN_TOOLS = (
     "filesystem.open",
     "browser.launch",
     "browser.search",
+    "browser.navigate",
     "browser.get_page",
 )
 
@@ -250,6 +251,28 @@ async def test_browser_task_without_a_search_query_just_launches_and_observes():
     outcome = await _planner().create_plan(intent)
     assert outcome.status == "PLANNED"
     assert [s.tool_id for s in outcome.plan.steps] == ["browser.launch", "browser.get_page"]
+
+
+@pytest.mark.asyncio
+async def test_browser_task_for_a_known_website_navigates_directly_to_it():
+    """A real, reported bug: "open youtube" used to just launch a blank
+    browser (no navigation at all, since it doesn't match the "search the
+    web for X" phrasing) — the user then had no working way to actually
+    reach YouTube. It must navigate straight to the known site instead."""
+    intent = StructuredIntent(
+        raw_request="open youtube",
+        goal="browser_task",
+        object="open youtube",
+        status="UNDERSTOOD",
+    )
+    outcome = await _planner().create_plan(intent)
+    assert outcome.status == "PLANNED"
+    assert [s.tool_id for s in outcome.plan.steps] == [
+        "browser.launch",
+        "browser.navigate",
+        "browser.get_page",
+    ]
+    assert outcome.plan.steps[1].arguments == {"url": "https://www.youtube.com"}
 
 
 @pytest.mark.asyncio

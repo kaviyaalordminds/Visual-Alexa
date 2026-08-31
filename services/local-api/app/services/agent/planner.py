@@ -92,6 +92,39 @@ _UNAVAILABLE_GOALS: dict[str, str] = {
 # preplans blindly.
 _WEB_SEARCH_QUERY_RE = re.compile(r"search\s+(?:the\s+)?web\s+(?:for\s+)?(.+)", re.IGNORECASE)
 
+# Well-known site name -> canonical URL, so "open youtube" navigates
+# straight there instead of either falling through to `open_application`
+# (no such app exists -> a confusing APPLICATION_NOT_FOUND) or a blind,
+# unhelpful web search for the literal word "youtube". Deliberately a
+# small, explicit, deterministic list — this planner makes no LLM call
+# and never guesses (docs/phase-4 §4: "no-model-needed"); a site name not
+# in this list still falls through to `open_application`, which correctly
+# and honestly reports APPLICATION_NOT_FOUND rather than a wrong guess.
+# `intent.py` imports this same dict (rather than keeping a second,
+# separately maintained name list) to decide when "open X" should be
+# classified as a browser_task at all.
+KNOWN_WEBSITES: dict[str, str] = {
+    "youtube": "https://www.youtube.com",
+    "gmail": "https://mail.google.com",
+    "google maps": "https://maps.google.com",
+    "maps": "https://maps.google.com",
+    "amazon": "https://www.amazon.com",
+    "netflix": "https://www.netflix.com",
+    "spotify": "https://open.spotify.com",
+    "github": "https://github.com",
+    "wikipedia": "https://www.wikipedia.org",
+    "whatsapp web": "https://web.whatsapp.com",
+}
+
+
+def _match_known_website(text: str) -> tuple[str, str] | None:
+    """Longest-name-first so 'google maps' matches before the bare 'maps'
+    entry that exists for the shorter phrasing alone."""
+    for name in sorted(KNOWN_WEBSITES, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(name)}\b", text, re.IGNORECASE):
+            return name, KNOWN_WEBSITES[name]
+    return None
+
 
 class TaskPlanner:
     def __init__(self, tool_selector: ToolSelector, search_roots: list[str]) -> None:
@@ -199,6 +232,7 @@ class TaskPlanner:
         ]
 
         query_match = _WEB_SEARCH_QUERY_RE.search(intent.object or "")
+        site_match = None if query_match else _match_known_website(intent.object or "")
         if query_match:
             try:
                 self._tools.select("browser.search")
@@ -213,6 +247,23 @@ class TaskPlanner:
                     tool_id="browser.search",
                     arguments={"query": query, "engine": "google"},
                     expected_outcome="Search results are loaded.",
+                    risk_level=RiskLevel.SAFE,
+                )
+            )
+        elif site_match:
+            site_name, url = site_match
+            try:
+                self._tools.select("browser.navigate")
+            except UnknownToolSelectedError as exc:
+                return PlanOutcome(status="CAPABILITY_UNAVAILABLE", reason=str(exc))
+            steps.append(
+                PlanStep(
+                    sequence=2,
+                    description=f"Navigate to {site_name.title()}.",
+                    intent=intent.goal,
+                    tool_id="browser.navigate",
+                    arguments={"url": url},
+                    expected_outcome=f"{site_name.title()} is loaded.",
                     risk_level=RiskLevel.SAFE,
                 )
             )

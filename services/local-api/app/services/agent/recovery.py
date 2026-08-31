@@ -26,6 +26,17 @@ _REOBSERVE_CATEGORIES = frozenset(
         ErrorCategory.PAGE_CHANGED,
     }
 )
+# Resource contention — retrying the identical action fails identically
+# (the resource is still busy for the same reason), but unlike
+# _PERMANENT_CATEGORIES this isn't unrecoverable: it resolves once
+# something frees the resource (e.g. the user closes a browser session
+# that's pinning BrowserManager's max_sessions cap). That's a decision
+# only the user can make, so this skips straight to ASK_USER with a clear,
+# actionable reason rather than either burning the retry budget on a
+# retry that cannot succeed or falling through to the generic
+# "not a recognized recoverable category" ABORT.
+_RESOURCE_CONTENTION_CATEGORIES = frozenset({ErrorCategory.RESOURCE_BUSY})
+
 # Permanent — no amount of retrying changes the outcome; escalate straight
 # to the user or abort, never spend the retry budget on these.
 _PERMANENT_CATEGORIES = frozenset(
@@ -77,6 +88,15 @@ class RecoveryManager:
             return RecoveryDecision(
                 strategy=RecoveryStrategy.ABORT,
                 reason=f"'{error_code.value}' is not recoverable by retrying.",
+                retry_count=retry_count,
+            )
+
+        if error_code in _RESOURCE_CONTENTION_CATEGORIES:
+            return RecoveryDecision(
+                strategy=RecoveryStrategy.ASK_USER,
+                reason=f"'{error_code.value}' — retrying won't help while the resource is "
+                "still busy; free it up (e.g. close an existing browser session) or tell me "
+                "how to proceed.",
                 retry_count=retry_count,
             )
 

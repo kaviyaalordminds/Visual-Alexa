@@ -49,6 +49,7 @@ from app.services.browser.manager import (
     BrowserManager,
     BrowserManagerError,
     BrowserSession,
+    BrowserState,
     BrowserTab,
     UnknownSessionError,
     UnknownTabError,
@@ -278,8 +279,26 @@ def build_browser_tools(ctx: BrowserToolContext) -> list[tuple[ToolDefinition, T
     # --- session-scoped tools: call.target is a session_id (or None) ---
 
     async def launch(call: ToolCallRequest) -> dict:
+        # A "launch a browser" request means "make sure a working browser is
+        # available" — reusing an already-open session is what a caller
+        # asking VEYRA to "open Chrome" a second time actually wants, not a
+        # second window. Without this, running one browser_task after
+        # another (the deterministic planner always plans a fresh
+        # `browser.launch` step per docs/phase-11) accumulates sessions
+        # until BrowserManager's max_sessions cap is hit and every further
+        # launch fails with a confusing RESOURCE_BUSY. `reuse_existing`
+        # defaults on; pass it `false` for the rare case a caller genuinely
+        # wants a second, independent session.
+        if bool(call.arguments.get("reuse_existing", True)) and m.active_session_id is not None:
+            existing = m.registry.get(m.active_session_id)
+            if existing is not None and existing.state == BrowserState.READY:
+                return {
+                    "session_id": existing.session_id,
+                    "tab_id": existing.active_tab_id,
+                    "reused": True,
+                }
         session = await m.launch(headless=bool(call.arguments.get("headless", True)))
-        return {"session_id": session.session_id, "tab_id": session.active_tab_id}
+        return {"session_id": session.session_id, "tab_id": session.active_tab_id, "reused": False}
 
     async def close(call: ToolCallRequest) -> dict:
         await m.close(call.target)
@@ -658,8 +677,17 @@ def build_browser_tools(ctx: BrowserToolContext) -> list[tuple[ToolDefinition, T
             _def(
                 "browser.launch",
                 "Launch Browser",
-                "Launch a new sandboxed Chromium browser session.",
-                input_schema={"type": "object", "properties": {"headless": {"type": "boolean"}}},
+                "Ensure a sandboxed Chromium browser session is available — "
+                "reuses the active session by default rather than opening a "
+                "new one each time (pass reuse_existing=false to force a new "
+                "session).",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "headless": {"type": "boolean"},
+                        "reuse_existing": {"type": "boolean"},
+                    },
+                },
                 risk_level=RiskLevel.SAFE,
                 keywords=["browser", "chrome", "open browser", "launch"],
             ),
