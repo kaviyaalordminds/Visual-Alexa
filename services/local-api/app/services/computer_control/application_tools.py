@@ -113,14 +113,35 @@ def build_application_tools(
         # Verification, per docs/phase-2 §21: a launch call returning
         # without error is NOT sufficient — confirm the process actually
         # exists before claiming VERIFIED.
+        #
+        # Brief sleep before the first PID check: some executables
+        # (notably Windows 10/11 Notepad) are UWP stubs that spawn the
+        # real process and exit within milliseconds, making an instant
+        # psutil.pid_exists() call unreliable.
+        import asyncio as _asyncio
+        await _asyncio.sleep(0.5)
         still_running = await backend.is_running(app_info.process_id)  # type: ignore[union-attr]
+        if not still_running:
+            # Stub may have exited after launching the real (UWP) process.
+            # Fall back to a name-based search so a UWP Notepad, Calculator,
+            # etc. isn't falsely reported as failed when it is visibly open.
+            running_by_name = await backend.find(args.application)  # type: ignore[union-attr]
+            still_running = len(running_by_name) > 0
+
         verification = VerificationOutcome(
             passed=still_running,
             method="process_detection",
             detail=f"pid={app_info.process_id}",
         )
+        # If the launch call succeeded without an exception, the OS accepted
+        # the request. Downgrade to EXECUTED (not FAILED) when we can't
+        # confirm the PID — the app may still be open (UWP stub scenario).
+        if still_running:
+            status = ActionStatus.VERIFIED
+        else:
+            status = ActionStatus.EXECUTED
         return ActionResult(
-            status=ActionStatus.VERIFIED if still_running else ActionStatus.FAILED,
+            status=status,
             tool="application.launch",
             target=args.application,
             execution_time_ms=0,

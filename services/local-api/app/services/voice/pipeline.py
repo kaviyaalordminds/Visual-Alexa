@@ -24,7 +24,9 @@ on `start_session`). This is the first real caller of either.
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
+import re
 
 from voice.core.enums import ActivationSource
 from voice.providers.base import (
@@ -49,6 +51,21 @@ logger = logging.getLogger(__name__)
 MAX_UTTERANCE_SECONDS = 12.0
 TRAILING_SILENCE_SECONDS = 0.7
 _CHUNK_SECONDS = 1280 / 16000  # openWakeWord/whisper's 16kHz, 1280-sample chunk
+
+# openWakeWord's detection window is 16 embedding frames × ~80 ms each ≈ 1.28 s.
+# When the user says "hey veyra open notepad" without a pause the wake-word
+# detection event fires while the audio for "open notepad" is still inside
+# that 1.28-second sliding window, so it has already been consumed from the
+# stream and is NOT available to the utterance recorder.  Keeping a rolling
+# buffer of the last N_WAKE_FRAMES chunks and replaying it at the START of
+# the utterance recording restores that overlap.  STT then sees the full
+# phrase ("hey veyra open notepad"); the wake phrase is stripped from the
+# transcript before it reaches the intent interpreter.
+_N_WAKE_FRAMES = 16  # must match openWakeWord's model_inputs[name] value
+_WAKE_PHRASE_RE = re.compile(
+    r"^(?:hey\s+veyra|hey\s+vera|hey\s+vey\s*ra|ok\s+veyra)[,\s]*",
+    re.IGNORECASE,
+)
 
 
 class VoiceHardwarePipeline:
@@ -106,11 +123,18 @@ class VoiceHardwarePipeline:
         # a scripted/mock stream, replaying) the same source. Wake-word
         # detection and utterance recording are two states of the same
         # loop, not two separate consumers.
+        #
+        # We keep a rolling buffer of the last _N_WAKE_FRAMES chunks so
+        # that when the wake word fires the overlap audio (the command
+        # words the user said immediately after the wake phrase, but that
+        # were still inside the detection window) is not lost.
+        pre_buffer: collections.deque[bytes] = collections.deque(maxlen=_N_WAKE_FRAMES)
         try:
             stream = self._audio_input.stream()
             async for chunk in stream:
                 if self._stop_requested:
                     break
+                pre_buffer.append(chunk)
                 activation = await self._wake_word.process_chunk(chunk)
                 if activation.detected:
                     logger.info(
@@ -118,19 +142,22 @@ class VoiceHardwarePipeline:
                         activation.phrase,
                         activation.confidence,
                     )
-                    await self._handle_wake_and_utterance(stream)
+                    await self._handle_wake_and_utterance(stream, list(pre_buffer))
+                    pre_buffer.clear()
         except Exception:
             logger.exception("[VOICE] Hardware pipeline loop failed unexpectedly")
 
-    async def _record_utterance(self, stream) -> list[bytes]:
-        """Bounded recording, continuing the same stream the wake word
-        was detected on: stops after real trailing silence (once speech
-        has actually started) or the hard duration cap, whichever comes
-        first — never waits forever."""
-        chunks: list[bytes] = []
-        elapsed = 0.0
+    async def _record_utterance(self, stream, pre_buffer: list[bytes]) -> list[bytes]:
+        """Bounded recording, prepending pre_buffer (the audio already
+        consumed by wake-word detection) so a command spoken immediately
+        after the wake phrase is not truncated.  Stops after real trailing
+        silence (once speech has started) or the hard duration cap."""
+        # pre_buffer may include the wake phrase itself; that's fine — the
+        # transcript is stripped of the wake phrase before interpretation.
+        chunks: list[bytes] = list(pre_buffer)
+        elapsed = len(pre_buffer) * _CHUNK_SECONDS
         silence_run = 0.0
-        heard_speech = False
+        heard_speech = any(self._vad.is_speech(c) for c in pre_buffer)
         async for chunk in stream:
             if self._stop_requested:
                 break
@@ -147,8 +174,8 @@ class VoiceHardwarePipeline:
                 break
         return chunks
 
-    async def _handle_wake_and_utterance(self, stream) -> None:
-        chunks = await self._record_utterance(stream)
+    async def _handle_wake_and_utterance(self, stream, pre_buffer: list[bytes]) -> None:
+        chunks = await self._record_utterance(stream, pre_buffer)
         if not chunks:
             return
 
@@ -162,6 +189,28 @@ class VoiceHardwarePipeline:
                 transcript_text = transcript.text.strip()
         if not transcript_text:
             logger.info("[VOICE] Wake word triggered but nothing was transcribed — no command.")
+            return
+
+        # Strip the wake phrase from the front of the transcript so that
+        # "Hey Veyra open notepad" reaches the intent interpreter as
+        # "open notepad".  The regex covers common STT spelling variants.
+        transcript_text = _WAKE_PHRASE_RE.sub("", transcript_text).strip()
+        if not transcript_text:
+            logger.info("[VOICE] Wake word triggered but only the wake phrase was transcribed — no command.")
+            return
+
+        # Discard noise/filler artefacts: a real command contains at least
+        # one alphanumeric word with two or more characters.  Single-letter
+        # "words" and pure-punctuation blobs are STT noise, not commands.
+        meaningful_words = [
+            w for w in transcript_text.split()
+            if re.search(r"[a-zA-Z0-9]{2,}", w)
+        ]
+        if not meaningful_words:
+            logger.info(
+                "[VOICE] Transcript '%s' contains no meaningful words — treating as silence.",
+                transcript_text,
+            )
             return
 
         async with SessionLocal() as db:

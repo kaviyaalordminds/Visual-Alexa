@@ -36,7 +36,7 @@ import httpx
 from app.core.config import Settings
 from app.services.agent.llm_provider import LLMProvider, LLMResult, NotConfiguredLLMProvider
 
-_HEALTH_CHECK_TIMEOUT_SECONDS = 3.0
+_HEALTH_CHECK_TIMEOUT_SECONDS = 10.0
 _INFERENCE_TIMEOUT_SECONDS = 15.0
 
 

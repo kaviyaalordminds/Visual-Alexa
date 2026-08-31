@@ -51,6 +51,7 @@ from app.services.credential_manager import credential_manager
 from app.services.device_pairing import device_pairing_service
 from app.services.integration_registry import integration_registry
 from app.services.mock_iot import build_mock_iot_tools
+from app.services.iot.ha_tools import build_ha_tools
 from app.services.reference_integration import build_reference_integration_bundle
 from app.services.subsystem_diagnostics_tools import register_subsystem_diagnostic_tools
 from app.services.agent.llm_provider import NotConfiguredLLMProvider
@@ -76,24 +77,32 @@ logger = logging.getLogger(__name__)
 
 
 async def _startup_ai_health_check() -> None:
-    """Run one AI connectivity probe shortly after startup so /system shows
+    """Run an AI connectivity probe shortly after startup so /system shows
     CONNECTED (or ERROR) on the first frontend poll without the user having to
-    invoke system.ai_health_check manually.  Intentionally non-fatal: a
-    network hiccup at boot must not prevent the API from serving requests."""
-    await asyncio.sleep(3)
-    try:
-        provider = build_llm_provider(settings)
-        if isinstance(provider, NotConfiguredLLMProvider):
-            return
-        result = await provider.health_check()
-        record_ai_check_result(result)
-        logger.info(
-            "[AI] startup health-check: %s — %s",
-            "CONNECTED" if result.available else "ERROR",
-            result.reason,
-        )
-    except Exception as exc:
-        logger.warning("[AI] startup health-check failed: %s", exc)
+    invoke system.ai_health_check manually.  Retries once after 15 s to
+    tolerate a local model server (Ollama, LM Studio) that is still warming
+    up when the API starts.  Intentionally non-fatal: a failure here must
+    never prevent the API from serving requests."""
+    await asyncio.sleep(5)
+    for attempt in range(2):
+        try:
+            provider = build_llm_provider(settings)
+            if isinstance(provider, NotConfiguredLLMProvider):
+                return
+            result = await provider.health_check()
+            record_ai_check_result(result)
+            logger.info(
+                "[AI] startup health-check (attempt %d): %s — %s",
+                attempt + 1,
+                "CONNECTED" if result.available else "ERROR",
+                result.reason,
+            )
+            if result.available:
+                return
+        except Exception as exc:
+            logger.warning("[AI] startup health-check (attempt %d) failed: %s", attempt + 1, exc)
+        if attempt == 0:
+            await asyncio.sleep(15)
 
 
 @asynccontextmanager
@@ -133,6 +142,11 @@ async def lifespan(app: FastAPI):
     integration_registry.register_definition(build_reference_integration_bundle(credential_manager))
     for mock_definition, mock_executor in build_mock_iot_tools(device_pairing_service):
         tool_registry.register(mock_definition, mock_executor)
+    # Real Home Assistant IoT tools — only registered when HA is configured.
+    if settings.ha_base_url and settings.ha_token:
+        for ha_def, ha_exec in build_ha_tools():
+            tool_registry.register(ha_def, ha_exec)
+        logger.info("[DEVICE] Home Assistant tools: REGISTERED")
     register_browser_tools(tool_registry)
     logger.info("[VEYRA] Tool registry: READY (%d tools)", len(tool_registry.list()))
     async with SessionLocal() as session:

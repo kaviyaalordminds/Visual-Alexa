@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     # "Hey VEYRA" model needs training data and is not shipped here, see
     # docs/voice-hardware/SETUP.md.
     wake_word_model: str = "hey_jarvis"
-    wake_word_threshold: float = 0.5
+    wake_word_threshold: float = 0.75
 
     # pywhispercpp: a known whisper.cpp shorthand name (auto-downloaded
     # on first use) or a direct path to an existing ggml model file.
@@ -127,6 +127,14 @@ class Settings(BaseSettings):
     # from OCR/screen-capture, which are already real and checked
     # independently — see vision's own NotConfiguredVisionProvider).
     vision_provider: str = ""
+
+    # Home Assistant REST API integration — blank = not configured.
+    # Set VEYRA_HA_BASE_URL (e.g. http://homeassistant.local:8123) and
+    # VEYRA_HA_TOKEN (a long-lived access token from HA's user profile)
+    # to enable real smart-home device control via iot.ha.call_service.
+    # The token is never logged or returned by any endpoint.
+    ha_base_url: str = ""
+    ha_token: str = ""
 
 
 @lru_cache

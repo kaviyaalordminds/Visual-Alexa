@@ -660,8 +660,11 @@ def _export_onnx(clf, scaler, n_features: int, out_model: pathlib.Path) -> None:
     shape_3d  = helper.make_tensor("shape_3d", TensorProto.INT64, [3], [-1, N_FRAMES, 1])
     node_3d   = helper.make_node("Reshape", ["logit", "shape_3d"], ["logit_3d"])
 
-    # ReduceMean: wake word must score consistently across the whole window,
-    # not just spike in one frame (ReduceMax caused confidence=1.0 on ambient audio).
+    # 4. Mean over frame axis: [batch, N_FRAMES, 1] → [batch, 1]
+    #    Mean requires the wake word to be consistently present across the
+    #    whole 16-frame window, not just a single spike frame.  ReduceMax
+    #    caused confidence=1.0 on ambient audio because even one high-logit
+    #    frame anywhere in the window triggered detection.
     node_max = helper.make_node("ReduceMean", ["logit_3d"], ["max_logit"],
                                  axes=[1], keepdims=0)
 
