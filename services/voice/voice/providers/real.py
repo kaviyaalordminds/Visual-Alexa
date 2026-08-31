@@ -158,7 +158,22 @@ class WhisperSTTProvider:
     the buffer size here is inherently bounded too.
     """
 
-    def __init__(self, model: str = "base.en", *, models_dir: str | None = None) -> None:
+    # Primes the Whisper decoder with command vocabulary so brand names
+    # (YouTube, Notepad, Spotify, GitHub …) are recognised reliably even
+    # on the small base.en model.  Operators can override per-instance.
+    DEFAULT_INITIAL_PROMPT = (
+        "VEYRA open YouTube Notepad Chrome Firefox Spotify GitHub Google Gmail Reddit "
+        "LinkedIn Facebook Instagram Wikipedia Amazon Netflix DuckDuckGo "
+        "play search find type screenshot minimize maximize close restore"
+    )
+
+    def __init__(
+        self,
+        model: str = "base.en",
+        *,
+        models_dir: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> None:
         try:
             from pywhispercpp.model import Model
         except ImportError as exc:
@@ -190,6 +205,9 @@ class WhisperSTTProvider:
                 f"whisper.cpp could not load model '{model}': {exc}. See "
                 "docs/voice-hardware/SETUP.md for where to download a real ggml model file."
             ) from exc
+        self._initial_prompt = (
+            initial_prompt if initial_prompt is not None else self.DEFAULT_INITIAL_PROMPT
+        )
 
     async def transcribe(
         self, audio_stream: AsyncIterator[bytes]
@@ -202,7 +220,11 @@ class WhisperSTTProvider:
         if not buffer:
             return
         samples = np.frombuffer(bytes(buffer), dtype=np.int16).astype(np.float32) / 32768.0
-        segments = self._model.transcribe(samples)
+        try:
+            segments = self._model.transcribe(samples, initial_prompt=self._initial_prompt)
+        except TypeError:
+            # pywhispercpp older builds may not accept initial_prompt; fall back gracefully.
+            segments = self._model.transcribe(samples)
         text = " ".join(segment.text.strip() for segment in segments).strip()
         if not text:
             return

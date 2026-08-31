@@ -76,6 +76,8 @@ _SEARCH_ENGINES = {
     "google": "https://www.google.com/search?q={q}",
     "bing": "https://www.bing.com/search?q={q}",
     "duckduckgo": "https://duckduckgo.com/?q={q}",
+    "youtube": "https://www.youtube.com/results?search_query={q}",
+    "spotify": "https://open.spotify.com/search/{q}",
 }
 
 

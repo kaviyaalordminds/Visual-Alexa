@@ -67,6 +67,24 @@ _WAKE_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Brand names Whisper's base.en model commonly mis-transcribes — applied as
+# whole-phrase replacements (case-insensitive) before the intent interpreter
+# ever sees the text, so patterns in intent.py see canonical spellings.
+_STT_CORRECTIONS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\byou\s+tube\b", re.IGNORECASE), "YouTube"),
+    (re.compile(r"\bu\s+tube\b", re.IGNORECASE), "YouTube"),
+    (re.compile(r"\bgit\s+hub\b", re.IGNORECASE), "GitHub"),
+    (re.compile(r"\blinked\s+in\b", re.IGNORECASE), "LinkedIn"),
+    (re.compile(r"\bstack\s+over\s*flow\b", re.IGNORECASE), "StackOverflow"),
+    (re.compile(r"\bface\s+book\b", re.IGNORECASE), "Facebook"),
+    (re.compile(r"\binsta\s+gram\b", re.IGNORECASE), "Instagram"),
+    (re.compile(r"\bwhats\s*app\b", re.IGNORECASE), "WhatsApp"),
+    (re.compile(r"\bduck\s+duck\s+go\b", re.IGNORECASE), "DuckDuckGo"),
+    (re.compile(r"\bopen\s+ai\b", re.IGNORECASE), "OpenAI"),
+    (re.compile(r"\bnote\s+pad\b", re.IGNORECASE), "Notepad"),
+    (re.compile(r"\bspoti\s*fy\b", re.IGNORECASE), "Spotify"),
+]
+
 
 class VoiceHardwarePipeline:
     def __init__(
@@ -198,6 +216,11 @@ class VoiceHardwarePipeline:
         if not transcript_text:
             logger.info("[VOICE] Wake word triggered but only the wake phrase was transcribed — no command.")
             return
+
+        # Normalise brand names Whisper often splits across word boundaries
+        # (e.g. "you tube" → "YouTube", "note pad" → "Notepad").
+        for pattern, replacement in _STT_CORRECTIONS:
+            transcript_text = pattern.sub(replacement, transcript_text)
 
         # Discard noise/filler artefacts: a real command contains at least
         # one alphanumeric word with two or more characters.  Single-letter

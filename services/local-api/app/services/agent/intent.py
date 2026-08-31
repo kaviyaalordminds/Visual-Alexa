@@ -79,9 +79,27 @@ _NAVIGATE_RE = re.compile(
     re.IGNORECASE,
 )
 # "open <known-site>" without a TLD — e.g. "open youtube", "open google"
+# Matches 1 or 2 words so STT variants like "you tube" are captured.
 _OPEN_KNOWN_SITE_RE = re.compile(
-    r"^(?:open|go\s+to|visit|launch)\s+(\w+)\s*$", re.IGNORECASE
+    r"^(?:open|go\s+to|visit|launch)\s+([\w]+(?:\s+[\w]+)?)\s*$", re.IGNORECASE
 )
+
+# STT commonly mis-transcribes compound brand names as two words; normalise before lookup.
+_SITE_NAME_CORRECTIONS: dict[str, str] = {
+    "you tube": "youtube",
+    "u tube": "youtube",
+    "git hub": "github",
+    "linked in": "linkedin",
+    "stack overflow": "stackoverflow",
+    "face book": "facebook",
+    "insta gram": "instagram",
+    "duck duck go": "duckduckgo",
+    "duck duck": "duckduckgo",
+    "what's app": "whatsapp",
+    "whats app": "whatsapp",
+    "open ai": "openai",
+    "you tube.com": "youtube",
+}
 # "email X" / "send email to X" / "compose email to X" / "send a mail to X"
 _EMAIL_RE = re.compile(
     r"^(?:email|send\s+(?:an?\s+)?(?:email|mail|message)\s+to|compose\s+(?:an?\s+)?(?:email|mail)\s+to)\s+(.+)$",
@@ -433,6 +451,7 @@ class IntentInterpreter:
         # "open youtube", "open google", "open reddit" — known site without TLD
         if match := _OPEN_KNOWN_SITE_RE.match(text):
             site = match.group(1).lower()
+            site = _SITE_NAME_CORRECTIONS.get(site, site)  # normalise STT variants
             if site in _KNOWN_SITES:
                 url = f"https://www.{site}.com"
                 return StructuredIntent(
