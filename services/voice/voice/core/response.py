@@ -92,12 +92,18 @@ def _capability_unavailable_text(language: Language) -> str:
 
 
 def _completed_text(outcome: TaskOutcome, language: Language) -> str:
-    subject = outcome.result_summary or outcome.goal
+    # When result_summary is set it is the verbatim spoken response (e.g. a
+    # conversational reply or a query answer) — speak it directly without
+    # wrapping it in "Done. X is done." which would be nonsensical for
+    # "It's 3:15 PM on Tuesday" or "Hello! I'm VEYRA...".
+    if outcome.result_summary:
+        return outcome.result_summary
+    subject = outcome.goal
     if language == Language.TA:
         return f"முடிந்தது. {subject} தயார்." if subject else "முடிந்தது."
     if language == Language.TA_EN:
         return f"Done pannitten. {subject} ready." if subject else "Done pannitten."
-    return f"Done. {subject} is done." if subject else "Done."
+    return f"Done. {subject} is ready." if subject else "Done."
 
 
 def _failed_text(outcome: TaskOutcome, language: Language) -> str:

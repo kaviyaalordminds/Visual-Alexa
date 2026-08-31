@@ -552,6 +552,7 @@ class VoiceConversationManager:
         clarifying_question: str | None = None
         confirmation_prompt: str | None = None
         result = task.result or {}
+        result_summary: str | None = result.get("result_summary")
         if task.state == TaskState.WAITING_USER:
             clarifying_question = result.get("clarifying_question")
             candidates = [
@@ -572,6 +573,7 @@ class VoiceConversationManager:
         outcome = TaskOutcome(
             state=task.state,
             goal=task.description,
+            result_summary=result_summary,
             error=error,
             candidates=candidates,
             clarifying_question=clarifying_question,

@@ -39,6 +39,7 @@ from app.models.task import TaskStep as TaskStepRow
 from app.services.agent.confirmation import ConfirmationManager
 from app.services.agent.context import ContextManager, StepRecord, TaskContext
 from app.services.agent.intent import IntentInterpreter
+from app.services.agent.llm_conversation import llm_converse
 from app.services.agent.llm_intent import llm_classify_intent
 from app.services.agent.loop_protection import LoopBudgetTracker
 from app.services.agent.planner import FileCandidate, TaskPlanner
@@ -141,15 +142,29 @@ class AgentOrchestrator:
         if await self._check_cancelled(session, sm, task):
             return
 
+        # Conversational intents (greetings, queries, help) bypass the full
+        # planning pipeline — handled directly with a canned or LLM response.
+        if intent.status == "UNDERSTOOD" and intent.goal == "conversation_task":
+            await self._handle_conversation_intent(session, sm, task, intent, context)
+            return
+
         if intent.status == "MISSING_INFORMATION":
-            # Try LLM fallback before asking the user — handles natural
-            # phrasing the deterministic regex didn't cover.
+            # Try LLM intent classification first — handles natural phrasing
+            # the deterministic regex didn't cover.
             llm_intent = await llm_classify_intent(task.description)
             if llm_intent is not None and llm_intent.status == "UNDERSTOOD":
                 intent = llm_intent
                 task.normalized_goal = intent.model_dump(mode="json")
                 context.entities = intent.entities
             else:
+                # Try LLM conversation before falling back to a clarifying question —
+                # the user may be chatting, not issuing a command.
+                llm_response = await llm_converse(task.description)
+                if llm_response is not None:
+                    sm.transition(TaskState.PLANNING)
+                    await self._save(session, task)
+                    await self._complete_with_message(session, sm, task, context, llm_response)
+                    return
                 await self._wait_for_user(
                     session, sm, task, intent.clarifying_question, "clarification"
                 )
@@ -684,6 +699,58 @@ class AgentOrchestrator:
             return None
 
         return _lookup
+
+    async def _handle_conversation_intent(
+        self,
+        session: AsyncSession,
+        sm: TaskStateMachine,
+        task: TaskRow,
+        intent: StructuredIntent,
+        context: TaskContext,
+    ) -> None:
+        """Handle a conversation_task intent without a tool plan.
+
+        Prefers the canned `response` entity embedded by the intent classifier;
+        falls back to an LLM-generated conversational reply; falls back further
+        to a generic helpful message when no LLM is configured.
+        """
+        canned = (intent.entities or {}).get("response")
+        if canned:
+            response_text = str(canned)
+        else:
+            response_text = await llm_converse(task.description) or (
+                "I'm here to help! You can ask me to open apps, search the web, "
+                "take screenshots, and much more."
+            )
+
+        sm.transition(TaskState.PLANNING)
+        await self._save(session, task)
+        await event_bus.publish_type(EventType.TASK_PLANNED, task.correlation_id)
+        await self._complete_with_message(session, sm, task, context, response_text)
+
+    async def _complete_with_message(
+        self,
+        session: AsyncSession,
+        sm: TaskStateMachine,
+        task: TaskRow,
+        context: TaskContext,
+        message: str,
+    ) -> None:
+        """Transition through the full success-path states and store a spoken
+        response in `task.result["result_summary"]` without executing any tool."""
+        sm.transition(TaskState.WAITING_PERMISSION)
+        sm.transition(TaskState.EXECUTING)
+        await self._save(session, task)
+        task.completed_at = _now()
+        task.result = {"outcome": "success", "result_summary": message}
+        _record_recovery_attempts(task, context)
+        sm.transition(TaskState.OBSERVING)
+        await self._save(session, task)
+        sm.transition(TaskState.VERIFYING)
+        await self._save(session, task)
+        sm.transition(TaskState.COMPLETED)
+        await self._save(session, task)
+        _clear_cancellation(task.id)
 
     async def _wait_for_user(
         self,

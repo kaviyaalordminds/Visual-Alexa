@@ -110,6 +110,78 @@ _TIME_CONSTRAINT_RE = re.compile(r"\b(yesterday|today|last week)\b", re.IGNORECA
 _FILE_TYPE_RE = re.compile(r"\b(pdf|docx?|xlsx?|txt|png|jpe?g)\b", re.IGNORECASE)
 _LOCATION_RE = re.compile(r"\bin\s+(downloads|documents|desktop)\b", re.IGNORECASE)
 
+# --- Conversational / query patterns ---
+# Greetings: "hi", "hello", "hey there", "hey veyra", etc.
+_GREETING_RE = re.compile(
+    r"^(?:hi|hello|hey)\s*(?:there|veyra|vera|vey\s*ra)?\s*[!.,]?\s*$",
+    re.IGNORECASE,
+)
+# "how are you", "how do you do", "how is it going"
+_HOW_ARE_YOU_RE = re.compile(
+    r"^how\s+(?:are\s+you|do\s+you\s+do|is\s+it\s+going|'?s\s+it\s+going)\b",
+    re.IGNORECASE,
+)
+# "what can you do", "help", "help me", "what are your capabilities", etc.
+_WHAT_CAN_YOU_DO_RE = re.compile(
+    r"^(?:what\s+can\s+you\s+(?:do|help\s+with)|help(?:\s+me)?|"
+    r"what\s+(?:are\s+your\s+)?capabilities?|what\s+do\s+you\s+do|"
+    r"what\s+can\s+veyra\s+do|list\s+(?:your\s+)?commands?|"
+    r"show\s+me\s+what\s+you\s+can\s+do)\s*[?!.]?\s*$",
+    re.IGNORECASE,
+)
+# "thanks", "thank you", "cheers"
+_THANKS_RE = re.compile(
+    r"^(?:thank\s+you|thanks(?:\s+a\s+lot)?|cheers|that(?:'s|\s+is)\s+(?:great|perfect|awesome))\s*[!.]?\s*$",
+    re.IGNORECASE,
+)
+# "who are you", "what are you"
+_WHO_ARE_YOU_RE = re.compile(
+    r"^(?:who|what)\s+are\s+you\b",
+    re.IGNORECASE,
+)
+# "what time is it", "what's the date", "what day is today"
+_WHAT_TIME_DATE_RE = re.compile(
+    r"^what(?:'s|\s+is)\s+(?:the\s+)?(?:time|date|day)\b"
+    r"|^what\s+(?:day|time)\s+is\s+(?:it|today)\b"
+    r"|^(?:what(?:'s|\s+is)\s+)?(?:the\s+)?(?:current\s+)?(?:time|date)\s*[?]?\s*$",
+    re.IGNORECASE,
+)
+# "can you hear me", "are you working", "are you there"
+_ARE_YOU_THERE_RE = re.compile(
+    r"^(?:can\s+you\s+hear\s+me|are\s+you\s+(?:there|working|listening|online)|"
+    r"is\s+(?:this\s+thing\s+)?(?:working|on))\s*[?]?\s*$",
+    re.IGNORECASE,
+)
+# "good morning/afternoon/evening"
+_GOOD_DAY_RE = re.compile(
+    r"^good\s+(?:morning|afternoon|evening|night|day)\b",
+    re.IGNORECASE,
+)
+
+# Natural-language wrappers for existing commands
+# "can you open X", "please open X", "I want to open X", "could you open X"
+_PLEASE_OPEN_RE = re.compile(
+    r"^(?:can\s+you|please|could\s+you|I\s+want\s+(?:you\s+)?to|I\s+'d\s+like\s+(?:you\s+)?to|"
+    r"would\s+you)\s+(?:please\s+)?open\s+(.+)$",
+    re.IGNORECASE,
+)
+# "can you search for X", "please search X", "can you find X"
+_PLEASE_SEARCH_RE = re.compile(
+    r"^(?:can\s+you|please|could\s+you)\s+(?:please\s+)?(?:search(?:\s+for)?|find|look\s+up)\s+(.+)$",
+    re.IGNORECASE,
+)
+# "can you play X", "please play X"
+_PLEASE_PLAY_RE = re.compile(
+    r"^(?:can\s+you|please|could\s+you)\s+(?:please\s+)?play\s+(.+)$",
+    re.IGNORECASE,
+)
+# "can you take a screenshot", "please take a screenshot"
+_PLEASE_SCREENSHOT_RE = re.compile(
+    r"^(?:can\s+you|please|could\s+you)\s+(?:please\s+)?(?:take\s+(?:a\s+)?screenshot|"
+    r"screenshot|capture\s+(?:the\s+)?screen)\b",
+    re.IGNORECASE,
+)
+
 # Typing / keyboard input
 _TYPE_TEXT_RE = re.compile(r"^(?:type|enter|input)\s+(.+)$", re.IGNORECASE)
 _PRESS_KEY_RE = re.compile(r"^press\s+(.+)$", re.IGNORECASE)
@@ -215,6 +287,94 @@ class IntentInterpreter:
         self, raw_request: str, text: str, entities: dict
     ) -> StructuredIntent:
         """Classify a single (non-compound) command."""
+
+        # --- Conversational / meta queries (handled before action patterns) ---
+        if _GREETING_RE.match(text) or _GOOD_DAY_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="greeting",
+                entities={**entities, "response": "Hello! I'm VEYRA, your AI assistant. How can I help you today?"},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if _HOW_ARE_YOU_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="greeting",
+                entities={**entities, "response": "I'm doing great, thanks for asking! Ready to help. What would you like me to do?"},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if _WHAT_CAN_YOU_DO_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="help",
+                entities={**entities, "response": (
+                    "I can open applications, search the web, navigate to websites, play music, "
+                    "take screenshots, read your screen, control windows, type text, and more! "
+                    "Just tell me what you'd like to do."
+                )},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if _THANKS_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="thanks",
+                entities={**entities, "response": "You're welcome! Let me know if there's anything else I can help with."},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if _WHO_ARE_YOU_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="identity",
+                entities={**entities, "response": (
+                    "I'm VEYRA — your local AI assistant for Windows. I can open apps, "
+                    "browse the web, control your screen, and much more. What can I do for you?"
+                )},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if _WHAT_TIME_DATE_RE.match(text):
+            from datetime import datetime as _dt
+            _now = _dt.now()
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="time_query",
+                entities={**entities, "response": f"It's {_now.strftime('%I:%M %p')} on {_now.strftime('%A, %B %d, %Y')}."},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if _ARE_YOU_THERE_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="conversation_task", object="status",
+                entities={**entities, "response": "Yes, I'm here and ready! What would you like me to do?"},
+                risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        # Natural-language wrappers: "please open X", "can you open X", etc.
+        if match := _PLEASE_OPEN_RE.match(text):
+            object_ = match.group(1).strip().rstrip(".")
+            goal = "open_file" if object_.lower().startswith("my ") else "open_application"
+            return StructuredIntent(
+                raw_request=raw_request, goal=goal, object=object_,
+                entities=entities, risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if match := _PLEASE_SEARCH_RE.match(text):
+            obj = match.group(1).strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request, goal="search_files", object=obj,
+                entities=entities, risk_level=RiskLevel.SAFE, status="UNDERSTOOD",
+            )
+
+        if match := _PLEASE_PLAY_RE.match(text):
+            media = match.group(1).strip().rstrip(".")
+            return StructuredIntent(
+                raw_request=raw_request, goal="media_task", object=media,
+                entities={**entities, "media": media}, risk_level=RiskLevel.MODERATE, status="UNDERSTOOD",
+            )
+
+        if _PLEASE_SCREENSHOT_RE.match(text):
+            return StructuredIntent(
+                raw_request=raw_request, goal="take_screenshot", object=text,
+                entities=entities, risk_level=RiskLevel.MODERATE, status="UNDERSTOOD",
+            )
 
         # YouTube-specific search — before generic browser check
         # _YOUTUBE_RE has two alternations:
