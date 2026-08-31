@@ -179,9 +179,19 @@ def build_window_tools(bundle: BackendBundle) -> list[tuple[ToolDefinition, obje
 
     async def control_by_title(call: ToolCallRequest) -> ActionResult:
         """Find a window by title then apply minimize/maximize/close/restore/focus in one step.
-        Avoids having to chain window.find + window.* in two separate plan steps."""
+        Avoids having to chain window.find + window.* in two separate plan steps.
+        Retries for up to 3 seconds so that compound commands like "open notepad and type
+        hello" can immediately focus the window even if the app is still starting up."""
+        import asyncio as _asyncio
+
         args = _ControlByTitleArgs(**call.arguments)
-        window = await backend.find_window(args.title_query)  # type: ignore[union-attr]
+        window = None
+        for _attempt in range(7):  # up to ~3 seconds total (0 + 6 × 0.5 s)
+            window = await backend.find_window(args.title_query)  # type: ignore[union-attr]
+            if window is not None:
+                break
+            if _attempt < 6:
+                await _asyncio.sleep(0.5)
         if window is None:
             raise ToolLogicError(
                 ErrorCategory.WINDOW_NOT_FOUND,

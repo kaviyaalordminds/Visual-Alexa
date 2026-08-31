@@ -128,6 +128,20 @@ def build_application_tools(
             running_by_name = await backend.find(args.application)  # type: ignore[union-attr]
             still_running = len(running_by_name) > 0
 
+        # Wait for the application's window to appear (up to 3 seconds) so that
+        # a compound command's next step (e.g. window.control_by_title focus before
+        # keyboard.type_active) finds the window immediately rather than racing.
+        if still_running and bundle.window is not None:
+            app_lower = args.application.lower()
+            for _ in range(6):
+                try:
+                    open_windows = await bundle.window.list_windows()
+                    if any(app_lower in (w.title or "").lower() for w in open_windows):
+                        break
+                except Exception:
+                    pass
+                await _asyncio.sleep(0.5)
+
         verification = VerificationOutcome(
             passed=still_running,
             method="process_detection",

@@ -110,6 +110,16 @@ _TIME_CONSTRAINT_RE = re.compile(r"\b(yesterday|today|last week)\b", re.IGNORECA
 _FILE_TYPE_RE = re.compile(r"\b(pdf|docx?|xlsx?|txt|png|jpe?g)\b", re.IGNORECASE)
 _LOCATION_RE = re.compile(r"\bin\s+(downloads|documents|desktop)\b", re.IGNORECASE)
 
+# "open youtube and play X" / "go to youtube and play X" / "open youtube, play X"
+# Must be checked BEFORE the compound splitter so it isn't wrongly split into
+# browser_task + media_task (which would open YouTube then open Spotify separately).
+_YOUTUBE_OPEN_AND_PLAY_RE = re.compile(
+    r"^(?:open|go\s+to|navigate\s+to|visit|launch)\s+youtube"
+    r"(?:\s+and\s+|\s*,\s*|\s+then\s+)"
+    r"(?:please\s+)?(?:play|search\s+(?:for\s+)?|find|look\s+up)\s+(.+)$",
+    re.IGNORECASE,
+)
+
 # --- Conversational / query patterns ---
 # Greetings: "hi", "hello", "hey there", "hey veyra", etc.
 _GREETING_RE = re.compile(
@@ -271,6 +281,19 @@ class IntentInterpreter:
                 object=text,
                 entities=entities,
                 risk_level=RiskLevel.SENSITIVE,
+                status="UNDERSTOOD",
+            )
+
+        # "open youtube and play X" — must intercept before the compound splitter
+        # so it produces one browser_task with youtube_search, not two separate plans.
+        if match := _YOUTUBE_OPEN_AND_PLAY_RE.match(text):
+            query = re.sub(r"^for\s+", "", match.group(1).strip().rstrip("."), flags=re.IGNORECASE)
+            return StructuredIntent(
+                raw_request=raw_request,
+                goal="browser_task",
+                object=text,
+                entities={**entities, "youtube_search": query},
+                risk_level=RiskLevel.MODERATE,
                 status="UNDERSTOOD",
             )
 
