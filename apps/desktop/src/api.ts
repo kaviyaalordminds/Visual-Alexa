@@ -3,8 +3,12 @@ import type {
   DeviceOut,
   HealthResponse,
   IntegrationOut,
+  PermissionDecision,
   PluginOut,
   SystemStatus,
+  TaskBudget,
+  TaskOut,
+  TaskStepOut,
   ToolDefinition,
   ToolResult,
 } from "@veyra/contracts";
@@ -136,4 +140,42 @@ export function listBrowserSessions(): Promise<BrowserSessionInfo[]> {
 
 export function closeBrowserSession(sessionId: string): Promise<ToolResult> {
   return invokeTool("browser.close", {}, sessionId);
+}
+
+// docs/phase-4/TASK-API.md — TaskRunner.tsx is the first frontend surface
+// to drive these; every call goes through the real
+// plan -> execute -> observe -> verify -> recover pipeline, same as any
+// other caller of VEYRA.
+const DEFAULT_TASK_BUDGET: TaskBudget = {
+  max_steps: 20,
+  timeout_seconds: 120,
+  max_recovery_attempts: 3,
+};
+
+export function listTasks(): Promise<TaskOut[]> {
+  return getJSON<TaskOut[]>("/tasks");
+}
+
+export function createTask(description: string, budget: TaskBudget = DEFAULT_TASK_BUDGET): Promise<TaskOut> {
+  return postJSON<TaskOut>("/tasks", { description, budget });
+}
+
+export function getTask(taskId: string): Promise<TaskOut> {
+  return getJSON<TaskOut>(`/tasks/${taskId}`);
+}
+
+export function getTaskSteps(taskId: string): Promise<TaskStepOut[]> {
+  return getJSON<TaskStepOut[]>(`/tasks/${taskId}/steps`);
+}
+
+export function runTask(taskId: string): Promise<TaskOut> {
+  return postJSON<TaskOut>(`/tasks/${taskId}/run`);
+}
+
+export function cancelTask(taskId: string): Promise<TaskOut> {
+  return postJSON<TaskOut>(`/tasks/${taskId}/cancel`);
+}
+
+export function confirmTask(taskId: string, decision: PermissionDecision): Promise<TaskOut> {
+  return postJSON<TaskOut>(`/tasks/${taskId}/confirm`, { decision });
 }

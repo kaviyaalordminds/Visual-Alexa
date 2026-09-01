@@ -314,3 +314,120 @@ h1 {
   color: #9aa3b2;
   font-size: 0.75rem;
 }
+
+.task-runner {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #262b36;
+}
+
+.task-runner h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.task-runner input {
+  background: #171a21;
+  border: 1px solid #262b36;
+  color: #e6e8eb;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-family: inherit;
+  width: 100%;
+  max-width: 28rem;
+}
+
+.task-runner button {
+  background: #7aa2f7;
+  color: #0f1115;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.task-runner button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.task-current {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.task-current-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.task-current-header span {
+  color: #9aa3b2;
+  font-size: 0.8rem;
+}
+
+.task-cancel {
+  margin-top: 0 !important;
+  background: transparent !important;
+  color: #f87171 !important;
+  border: 1px solid #3a2a2a !important;
+  padding: 0.25rem 0.6rem !important;
+  font-size: 0.75rem !important;
+}
+
+.task-confirmation {
+  border: 1px solid #7aa2f7;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  background: #171a21;
+}
+
+.task-confirmation p {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+}
+
+.task-confirmation-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.task-confirmation-actions button {
+  margin-top: 0 !important;
+  padding: 0.4rem 0.8rem !important;
+  font-size: 0.8rem !important;
+}
+
+.task-deny {
+  background: transparent !important;
+  color: #f87171 !important;
+  border: 1px solid #3a2a2a !important;
+}
+
+.task-step-completed em {
+  color: #4ade80;
+  font-style: normal;
+}
+
+.task-step-failed em {
+  color: #f87171;
+  font-style: normal;
+}
+
+.task-step-waiting em {
+  color: #facc15;
+  font-style: normal;
+}
+
+.task-step-active em {
+  color: #9aa3b2;
+  font-style: normal;
+}
