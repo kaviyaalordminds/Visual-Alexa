@@ -207,6 +207,140 @@ async def test_confirmation_pause_and_resume(client, fs_sandbox, db_session, mon
     assert os.path.isdir(os.path.join(fs_sandbox, "confirmed_dir"))
 
 
+def _create_folder_plan(fs_sandbox: str, folder_name: str) -> ExecutionPlan:
+    return ExecutionPlan(
+        goal="test_confirmation",
+        steps=[
+            PlanStep(
+                sequence=1,
+                description="Create a folder.",
+                tool_id="filesystem.create_folder",
+                arguments={"parent": fs_sandbox, "name": folder_name},
+                risk_level=RiskLevel.MODERATE,
+            )
+        ],
+        risk_level=RiskLevel.MODERATE,
+        requires_confirmation=True,
+    )
+
+
+async def test_allow_once_grant_is_single_use_not_reusable_for_a_second_confirmation(
+    client, fs_sandbox, monkeypatch
+):
+    """docs/security/08-SENSITIVE-ACTION-POLICY.md §1 — ALLOW_ONCE covers
+    exactly the one call it was granted for. A second, later task hitting
+    the same tool must pause for confirmation again, not silently reuse
+    the first grant — proving tool_execution.py's post-call revoke is
+    real, not merely a shorter expiry that happens not to have lapsed yet."""
+
+    async def fake_plan_a(intent, search=None, memory_lookup=None):
+        return PlanOutcome(status="PLANNED", plan=_create_folder_plan(fs_sandbox, "once_a"))
+
+    monkeypatch.setattr(get_orchestrator()._planner, "create_plan", fake_plan_a)
+    task_a = await _create(client, "open my confirm-test-target a")
+    await client.post(f"/tasks/{task_a['id']}/run")
+    waiting_a = await _wait_for_terminal(client, task_a["id"])
+    assert waiting_a["state"] == "WAITING_PERMISSION"
+    confirm_a = await client.post(
+        f"/tasks/{task_a['id']}/confirm", json={"decision": "ALLOW_ONCE"}
+    )
+    assert confirm_a.status_code == 200
+    final_a = await _wait_for_terminal(client, task_a["id"], leaving_state="WAITING_PERMISSION")
+    assert final_a["state"] == "COMPLETED"
+
+    async def fake_plan_b(intent, search=None, memory_lookup=None):
+        return PlanOutcome(status="PLANNED", plan=_create_folder_plan(fs_sandbox, "once_b"))
+
+    monkeypatch.setattr(get_orchestrator()._planner, "create_plan", fake_plan_b)
+    task_b = await _create(client, "open my confirm-test-target b")
+    await client.post(f"/tasks/{task_b['id']}/run")
+    waiting_b = await _wait_for_terminal(client, task_b["id"])
+    assert waiting_b["state"] == "WAITING_PERMISSION"
+
+
+async def test_always_allow_grant_persists_across_later_confirmations(
+    client, fs_sandbox, monkeypatch
+):
+    """docs/security/08-SENSITIVE-ACTION-POLICY.md §1 — SENSITIVE/MODERATE
+    tools "may be relaxed to ALWAYS_ALLOW... by explicit user choice." A
+    later task hitting the same tool must not pause again once the user
+    has made that choice — this is the real fix for "it keeps asking for
+    permission every time," implemented without touching CRITICAL's own
+    always-confirms rule (unaffected, verified separately)."""
+
+    async def fake_plan_a(intent, search=None, memory_lookup=None):
+        return PlanOutcome(status="PLANNED", plan=_create_folder_plan(fs_sandbox, "always_a"))
+
+    monkeypatch.setattr(get_orchestrator()._planner, "create_plan", fake_plan_a)
+    task_a = await _create(client, "open my confirm-test-target c")
+    await client.post(f"/tasks/{task_a['id']}/run")
+    waiting_a = await _wait_for_terminal(client, task_a["id"])
+    assert waiting_a["state"] == "WAITING_PERMISSION"
+    confirm_a = await client.post(
+        f"/tasks/{task_a['id']}/confirm", json={"decision": "ALWAYS_ALLOW"}
+    )
+    assert confirm_a.status_code == 200
+    final_a = await _wait_for_terminal(client, task_a["id"], leaving_state="WAITING_PERMISSION")
+    assert final_a["state"] == "COMPLETED"
+
+    async def fake_plan_b(intent, search=None, memory_lookup=None):
+        return PlanOutcome(status="PLANNED", plan=_create_folder_plan(fs_sandbox, "always_b"))
+
+    monkeypatch.setattr(get_orchestrator()._planner, "create_plan", fake_plan_b)
+    task_b = await _create(client, "open my confirm-test-target d")
+    await client.post(f"/tasks/{task_b['id']}/run")
+    final_b = await _wait_for_terminal(client, task_b["id"])
+    assert final_b["state"] == "COMPLETED"
+    assert os.path.isdir(os.path.join(fs_sandbox, "always_b"))
+
+
+async def test_critical_risk_step_never_gets_a_standing_grant_even_if_always_allow_is_chosen(
+    client, fs_sandbox, monkeypatch
+):
+    """docs/security/08-SENSITIVE-ACTION-POLICY.md §2 — belt-and-suspenders
+    alongside PolicyEngine's own risk_level == CRITICAL special case: a
+    plan step marked CRITICAL must never leave a persistent grant on disk
+    on that step's tool_id, even if the user is offered and picks
+    ALWAYS_ALLOW. PolicyEngine.evaluate() would already ignore this grant
+    for a genuinely CRITICAL check regardless (see test_policy_engine.py),
+    but confirmation_actions.py must not persist one that *looks* like
+    standing authorization either."""
+    plan = ExecutionPlan(
+        goal="test_confirmation",
+        steps=[
+            PlanStep(
+                sequence=1,
+                description="Create a folder.",
+                tool_id="filesystem.create_folder",
+                arguments={"parent": fs_sandbox, "name": "critical_guard"},
+                risk_level=RiskLevel.CRITICAL,
+            )
+        ],
+        risk_level=RiskLevel.CRITICAL,
+        requires_confirmation=True,
+    )
+
+    async def fake_plan(intent, search=None, memory_lookup=None):
+        return PlanOutcome(status="PLANNED", plan=plan)
+
+    monkeypatch.setattr(get_orchestrator()._planner, "create_plan", fake_plan)
+    task = await _create(client, "open my confirm-test-target critical")
+    await client.post(f"/tasks/{task['id']}/run")
+    waiting = await _wait_for_terminal(client, task["id"])
+    assert waiting["state"] == "WAITING_PERMISSION"
+
+    confirm_resp = await client.post(
+        f"/tasks/{task['id']}/confirm", json={"decision": "ALWAYS_ALLOW"}
+    )
+    assert confirm_resp.status_code == 200
+    await _wait_for_terminal(client, task["id"], leaving_state="WAITING_PERMISSION")
+
+    grants = (await client.get("/permissions")).json()
+    matching = [g for g in grants if g["tool_id"] == "filesystem.create_folder"]
+    assert matching
+    assert all(g["expires_at"] is not None for g in matching)
+
+
 async def test_pause_before_run_then_resume_executes_the_full_plan(client, fs_sandbox):
     """docs/phase-5/BARGE-IN.md — a real, cooperative pause (distinct from
     WAITING_PERMISSION): requesting a pause before the plan even starts

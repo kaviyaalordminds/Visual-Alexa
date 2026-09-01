@@ -20,13 +20,20 @@ class ConfirmationManager:
     def build_prompt(self, step: PlanStep, definition: ToolDefinition) -> str:
         target = step.arguments.get("path") or step.arguments.get("application") or step.description
         reason = {
-            RiskLevel.MODERATE: "This makes a reversible change.",
-            RiskLevel.SENSITIVE: "This has an externally visible or harder-to-reverse effect.",
-            RiskLevel.CRITICAL: "This is destructive or irreversible.",
+            RiskLevel.MODERATE: "it makes a reversible change",
+            RiskLevel.SENSITIVE: "it has an externally visible or harder-to-reverse effect",
+            RiskLevel.CRITICAL: "it's destructive or irreversible",
         }.get(step.risk_level, "")
+        # A natural, conversational ask rather than a terse status line —
+        # still names the exact tool, target, and risk tier verbatim
+        # (docs/security/08-SENSITIVE-ACTION-POLICY.md §3), just phrased
+        # the way VEYRA would actually say it out loud, matching the
+        # product brief's own example ("I found project-proposal.pdf...
+        # Do you want me to send it?") rather than a raw log line.
+        reason_clause = f", since {reason}" if reason else ""
         return (
-            f"{definition.name} — {target}. "
-            f"Risk: {step.risk_level.value}. {reason} Continue?"
+            f"I'd like to {definition.name} — {target}{reason_clause}. "
+            f"Risk level: {step.risk_level.value}. Should I go ahead?"
         ).strip()
 
     def confirmation_expired(

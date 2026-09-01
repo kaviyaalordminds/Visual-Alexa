@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from veyra_contracts import (
     ErrorCategory,
     ErrorInfo,
     EventType,
+    PermissionDecision,
     ToolCallRequest,
     ToolCategory,
     ToolResult,
@@ -20,11 +23,28 @@ from veyra_contracts import (
 )
 
 from app.core.event_bus import event_bus
+from app.models.tool import PermissionGrant as PermissionGrantRow
 from app.services.audit import write_audit_log
 from app.services.policy_engine import PolicyDecision, policy_engine
 from app.services.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+async def _consume_if_single_use(session: AsyncSession, grant_id: str | None) -> None:
+    """ALLOW_ONCE is true single-use, not just a short expiry — using it
+    for this call must not leave it usable for a second one. ALLOW_SESSION
+    /ALWAYS_ALLOW grants are untouched here; they're meant to cover more
+    than one call (docs/security/08-SENSITIVE-ACTION-POLICY.md §1)."""
+    if grant_id is None:
+        return
+    result = await session.execute(
+        select(PermissionGrantRow).where(PermissionGrantRow.id == grant_id)
+    )
+    grant = result.scalars().first()
+    if grant is not None and grant.scope == PermissionDecision.ALLOW_ONCE:
+        grant.revoked_at = datetime.now(UTC)
+        await session.commit()
 
 
 class UnknownToolError(LookupError):
@@ -204,5 +224,7 @@ async def execute_tool_call(
             call.correlation_id,
             {"tool_id": call.tool_id, "status": result.status.value},
         )
+
+    await _consume_if_single_use(session, decision.matched_grant_id)
 
     return ExecutionOutcome(result=result, policy_decision=decision)

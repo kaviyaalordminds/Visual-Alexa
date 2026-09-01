@@ -22,9 +22,19 @@ from app.models.task import Task as TaskRow
 from app.models.tool import PermissionGrant as PermissionGrantRow
 from app.services.agent.state_machine import TaskStateMachine
 
-# docs/phase-4/CONFIRMATION.md §22 — a confirm-created grant is
-# single-use and time-limited, never a standing ALWAYS_ALLOW.
-CONFIRMATION_GRANT_TTL_SECONDS = 300
+# docs/security/08-SENSITIVE-ACTION-POLICY.md §1: MODERATE defaults to
+# ALLOW_SESSION after first approval, SENSITIVE "may be relaxed to
+# ALWAYS_ALLOW per-tool by explicit user choice" — three genuinely
+# different lifetimes, not the same flat grant with three different
+# labels. ALLOW_ONCE is true single-use (tool_execution.py revokes it
+# right after the one call it covers, so its expiry here is just a safety
+# net for a call that never happens). ALLOW_SESSION covers a normal
+# working session without demanding CLAUDE.md's "no standing ALWAYS_ALLOW
+# for anything the user didn't explicitly choose" be stretched to mean
+# "session == forever." ALWAYS_ALLOW has no expiry — revocable any time
+# via /permissions, never silently reinstated.
+_ALLOW_ONCE_TTL_SECONDS = 300
+_ALLOW_SESSION_TTL_SECONDS = 4 * 60 * 60
 
 
 class NoPendingConfirmationError(ValueError):
@@ -67,6 +77,22 @@ async def apply_confirmation_decision(
 
     user = await get_or_create_local_user(session)
     pending_risk = (task.result or {}).get("pending_risk_level")
+    # Belt-and-suspenders alongside PolicyEngine's own risk_level ==
+    # CRITICAL special case (docs/security/08-SENSITIVE-ACTION-POLICY.md
+    # §2): a CRITICAL step reaching WAITING_PERMISSION and approved with
+    # ALLOW_SESSION/ALWAYS_ALLOW must never leave a grant on disk that
+    # *looks* like standing authorization for next time, even though
+    # PolicyEngine.evaluate() already ignores any stored grant for
+    # CRITICAL regardless. Every CRITICAL approval gets the shortest,
+    # single-use lifetime no matter which decision was actually clicked.
+    if pending_risk == "CRITICAL":
+        expires_at = datetime.now(UTC) + timedelta(seconds=_ALLOW_ONCE_TTL_SECONDS)
+    elif decision == PermissionDecision.ALWAYS_ALLOW:
+        expires_at = None
+    elif decision == PermissionDecision.ALLOW_SESSION:
+        expires_at = datetime.now(UTC) + timedelta(seconds=_ALLOW_SESSION_TTL_SECONDS)
+    else:
+        expires_at = datetime.now(UTC) + timedelta(seconds=_ALLOW_ONCE_TTL_SECONDS)
     grant = PermissionGrantRow(
         user_id=user.id,
         tool_id=pending_tool_id,
@@ -74,7 +100,7 @@ async def apply_confirmation_decision(
         risk_level=pending_risk,
         scope=decision,
         granted_at=datetime.now(UTC),
-        expires_at=datetime.now(UTC) + timedelta(seconds=CONFIRMATION_GRANT_TTL_SECONDS),
+        expires_at=expires_at,
     )
     session.add(grant)
     await session.commit()
